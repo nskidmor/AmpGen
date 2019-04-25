@@ -8,6 +8,10 @@
 This is a fork of AmpGen
 
 
+
+
+
+
 AmpGen is a library and set of applications for fitting and generating multi-body particle decays using the isobar model.
 It developed out of the MINT project used in the fitting of three and four-body pseudoscalar decays by the CLEO-c and LHCb colloborations. The library can handle the fitting and generation of a wide variety of final states, including those involving fermions and photons, as well as polarised initial states.
 
