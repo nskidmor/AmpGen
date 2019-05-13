@@ -98,7 +98,7 @@ int main( int argc, char** argv )
 
   EventList accepted( eventType );
 
-  INFO("Generating events with type = " << eventType );
+  INFO("Generating events with type = " << eventType << " with seed " << seed);
 
   if ( gen_type == "CoherentSum" ) {
     CoherentSum sig( eventType, MPS );
