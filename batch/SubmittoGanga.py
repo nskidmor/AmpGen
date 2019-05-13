@@ -40,7 +40,7 @@ app.options = [script]
 #Specify backend
 bckend = Dirac() 
 #bckend.settings['CPUTime']=60*60*18*10*10
-bckend.settings['Destination']='LCG.CERN.cern'
+#bckend.settings['Destination']='LCG.CERN.cern'
 print script, exe
 
 #Now configure the subjobs
