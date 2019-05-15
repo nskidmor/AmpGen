@@ -45,7 +45,7 @@ print script, exe
 
 #Now configure the subjobs
 RandSeedInit = 0
-subjobs = 3
+subjobs = 10
 
 i=0
 inputargs = []
