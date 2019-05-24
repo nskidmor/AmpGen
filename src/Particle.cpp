@@ -102,8 +102,7 @@ Particle::Particle( const std::string& decayString, const std::vector<std::strin
     ERROR( "Amplitude " << decayString << " not configured correctly" );
   }
   if ( finalStates.size() == fs.size() ) {
-    std::string finalStateString = "";
-    for ( auto& fs : finalStates ) finalStateString += fs + " ";
+    std::string finalStateString = vectorToString( finalStates, " ");
     for ( auto used : hasUsedFinalState ) {
       m_isStateGood &= used;
     }
@@ -166,7 +165,6 @@ std::string Particle::vertexName() const
   auto vx=  m_props->spinName() + "_" + 
     m_daughters[0]->m_props->spinName() + 
     m_daughters[1]->m_props->spinName() + "_" + orbitalString;
-
   return vx;
 }
 
@@ -183,15 +181,12 @@ void Particle::pdgLookup()
   } 
   else m_usesDefaultLineshape = false;
   m_parity                 = m_props->P();
-  if ( !isdigit( m_props->J()[0] ) ) {
-    ERROR( "Spin not recognised! : " << m_name << " J = " << m_props->J() );
-  }
+  if ( !isdigit( m_props->J()[0] ) ) ERROR( "Spin not recognised! : " << m_name << " J = " << m_props->J() );
   if( m_defaultModifier != "" && m_lineshape.find(".") == std::string::npos ){
     m_lineshape = m_lineshape + "." + m_defaultModifier;
   }
   bool isStrong = quarks() == daughterQuarks();
   DEBUG( m_name << " is decaying via " << ( isStrong ? "strong" : "electroweak" ) << " interactions; P = " << props()->P() );
-
   if ( m_name.find( "NonRes" ) != std::string::npos ) isStrong = true;
   m_minL = m_daughters.size() == 2 ? orbitalRange( isStrong ).first : 0;
   if ( m_daughters.size() == 2 ) {
@@ -199,14 +194,13 @@ void Particle::pdgLookup()
         << " name   =  " << m_name << " d0     =  " << m_daughters[0]->name()
         << " d1     =  " << m_daughters[1]->name() );
   }
-  if ( m_orbital == 0 ) m_orbital = m_minL; //// define in ground state unless specified ///
-
+  if ( m_orbital == 0 ) m_orbital = m_minL; // define in ground state unless specified
   for ( auto& d : m_daughters ) d->setTop( false );
 }
 
 Tensor Particle::P() const
 {
-  Tensor momentum( std::vector<double>( {0., 0., 0., 0.} ), std::vector<size_t>( {4} ) );
+  Tensor momentum( std::vector<double>( {0., 0., 0., 0.} ), Tensor::dim(4) );
   if ( isStable() ) {
     if ( m_index != 999 ) {
       const std::string index = std::to_string( m_index );
@@ -273,12 +267,7 @@ std::string Particle::makeUniqueString()
 {
   std::string modifier = modifierString();
   if ( m_daughters.size() != 0 ) {
-    std::string val = m_name + modifier + "{";
-    for ( unsigned int i = 0; i < m_daughters.size(); ++i ) {
-      m_daughters[i]->makeUniqueString();
-      val += m_daughters[i]->uniqueString() + ( i == m_daughters.size() - 1 ? "}" : "," );
-    }
-    m_uniqueString = val;
+    m_uniqueString = m_name + modifier + "{" + vectorToString( m_daughters, ",", [](auto& d){ return d->makeUniqueString() ;} ) +"}";
   } else {
     m_uniqueString = m_name + modifier ;
   }
@@ -288,7 +277,6 @@ std::string Particle::makeUniqueString()
 std::vector<std::shared_ptr<Particle>> Particle::getFinalStateParticles( const bool& sort ) const
 {
   std::vector<std::shared_ptr<Particle>> ffs;
-
   for ( auto daughter : m_daughters ) {
     if ( daughter->isStable() ) {
       ffs.push_back( daughter );
@@ -349,7 +337,8 @@ std::vector<std::vector<size_t>> Particle::identicalDaughterOrderings() const
   std::vector<std::vector<size_t>> orderings;
   auto finalStateParticles = getFinalStateParticles();
   std::vector<std::string> zero_perm;
-  for( auto& particle : finalStateParticles ) zero_perm.push_back( particle->name() ); 
+  std::transform( finalStateParticles.begin(), finalStateParticles.end(), std::back_inserter(zero_perm), 
+      [](auto& p ){ return p->name() ; } );
   std::vector<size_t> indices( finalStateParticles.size() );
   std::iota(indices.begin(), indices.end(), 0);
   do {
@@ -368,7 +357,11 @@ void Particle::setOrdering( const std::vector<size_t>& ordering )
     finalStateParticles[i]->setIndex( ordering[i] );
   }
 }
-void Particle::addDaughter( const std::shared_ptr<Particle>& particle ) { m_daughters.push_back( particle ); }
+void Particle::addDaughter( const std::shared_ptr<Particle>& particle ) 
+{ 
+  m_daughters.push_back( particle ); 
+  m_uniqueString = makeUniqueString();
+}
 
 Tensor Particle::transitionMatrix( DebugSymbols* db  )
 {
@@ -398,7 +391,6 @@ Expression Particle::getExpression( DebugSymbols* db, const unsigned int& index 
   for( auto& p : finalStateParticles ) exchangeParities.push_back( p->props()->isFermion() ? -1 : 1 ); 
   for(auto& ordering : orderings){
     auto exchangeParity = minSwaps( ordering, exchangeParities );   
-    //INFO( vectorToString( ordering, ", ") << " "  << exchangeParity.second );
     setOrdering( ordering );
     Expression spinFactor = 1; 
     if( includeSpin && spinFormalism == "Covariant" ){
@@ -623,33 +615,20 @@ std::string Particle::texLabel( const bool& printHead, const bool& recurse ) con
 
 void Particle::sortDaughters()
 {
-  std::stable_sort( m_daughters.begin(), m_daughters.end(), []( auto& A, auto& B ) { return *A < *B; } );
+  std::stable_sort( m_daughters.begin(), m_daughters.end(), 
+    []( auto& A, auto& B ) { return *A < *B; } );
+  m_uniqueString = makeUniqueString();
 }
-
-int Particle::conjugate( bool invertHead , bool reorder )
+Particle Particle::conj( bool invertHead , bool reorder )
 {
-  int sgn = 1;
-  DEBUG( "Conjugating flavour of " << m_name );
-  if ( m_props == nullptr ) ERROR( "Particle properties not found for " << m_name );
-  if ( ( !m_isHead || invertHead ) && m_props->hasDistinctAnti() ) {
-    DEBUG( "Trying to conjugate: " << m_name );
-    m_props = ParticlePropertiesList::get( -m_props->pdgID() );
-    m_name  = m_props->name();
-    m_parity = m_props->P();
-  }
-  sgn *= pow( -1, m_orbital );
-  if ( m_parity == -1 
-      && m_daughters.size() == 2 
-      && std::abs(daughter(0)->props()->pdgID()) == std::abs(daughter(1)->props()->pdgID())
-      && daughter(0)->props()->pdgID() != daughter(1)->props()->pdgID() ) {
-    sgn *= -1;
-  }
-  for ( auto& d : m_daughters ) sgn *= d->conjugate( invertHead );
-  if( reorder ) sortDaughters();
-  std::string oldUniqueString = m_uniqueString;
-  m_uniqueString              = makeUniqueString();
-  DEBUG( "Conjugate : " << oldUniqueString << " to " << m_uniqueString << " sgn = " << sgn );
-  return sgn;
+  Particle cp(*this);
+  cp.clearDecayProducts();
+  const ParticleProperties* p = ( !m_isHead || invertHead ) && m_props->hasDistinctAnti() ? ParticlePropertiesList::get( -m_props->pdgID() ) : m_props;
+  cp.setName( p->name() );
+  for( auto& d : m_daughters ) cp.addDaughter( std::make_shared<Particle>(d->conj(invertHead,reorder)) );
+  if( reorder ) cp.sortDaughters();
+  cp.pdgLookup();
+  return cp;
 }
 
 QuarkContent Particle::quarks() const
@@ -665,11 +644,23 @@ QuarkContent Particle::daughterQuarks() const
 }
 
 Expression Particle::massSq() const { return isStable() ? mass() * mass() : make_cse( dot( P(), P() ) ); }
+
+void Particle::clearDecayProducts()
+{
+  m_daughters.clear();
+}
+
 void Particle::addModifier( const std::string& mod )
 {
   m_modifiers.push_back( mod );
   parseModifier( mod );
   m_uniqueString = makeUniqueString();
+}
+void Particle::setName(const std::string& name)
+{ 
+  m_name   = name;
+  m_props  = ParticlePropertiesList::get(name);
+  m_parity = m_props->P();
 }
 void Particle::setTop( bool state ) { m_isHead = state; }
 void Particle::setIndex( const unsigned int& index, const bool& setOri )
@@ -697,14 +688,12 @@ int Particle::finalStateParity() const
 
 bool Particle::conservesParity( unsigned int L ) const
 {
-  return parity() == daughter( 0 )->parity() * daughter( 1 )->parity() * ( L % 2 == 0 ? 1 : -1 );
+  return parity() == daughter(0)->parity() * daughter(1)->parity() * ( L % 2 == 0 ? 1 : -1 );
 }
 
 std::string Particle::topologicalString() const
 {
-  std::string topo = "";
-  for ( auto& d : m_daughters ) topo += d->m_props->J();
-  return topo;
+  return std::accumulate( m_daughters.begin(), m_daughters.end(), std::string(""), [](auto& s, auto& d){ return s+d->props()->J() ; } );
 }
 const ParticleProperties* Particle::props() const { return m_props; }
 bool Particle::isHead() const { return m_isHead; }
@@ -806,6 +795,13 @@ int Particle::quasiCP() const
   return prod; 
 }
 
+int Particle::C() const 
+{
+  auto prod = ( props()->C() == 0 ? 1 : props()->C() );
+  for( auto& d : m_daughters ) prod *= d->C();
+  return prod; 
+}
+
 stdx::optional<std::string> Particle::attribute(const std::string& key) const 
 {
   for( auto& modifier : m_modifiers ){
@@ -813,4 +809,8 @@ stdx::optional<std::string> Particle::attribute(const std::string& key) const
     if( tokens.size() == 2 && tokens[0] == key ) return stdx::optional<std::string>(tokens[1]);
   }
   return stdx::nullopt;
+}
+
+std::ostream& AmpGen::operator<<( std::ostream& os, const Particle& particle ){
+  return os << particle.decayDescriptor();
 }

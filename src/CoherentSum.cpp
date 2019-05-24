@@ -26,11 +26,11 @@
 #include "AmpGen/ProfileClock.h"
 
 #ifdef __USE_OPENMP__
-#include <omp.h>
+  #include <omp.h>
 #endif
 
 using namespace AmpGen;
-
+CoherentSum::CoherentSum(){}
 CoherentSum::CoherentSum( const EventType& type, const MinuitParameterSet& mps, const std::string& prefix )
   : m_protoAmplitudes( mps )
   , m_evtType( type )
@@ -41,26 +41,16 @@ CoherentSum::CoherentSum( const EventType& type, const MinuitParameterSet& mps, 
   , m_prefix( prefix )
 {
   auto amplitudes      = m_protoAmplitudes.getMatchingRules( m_evtType, prefix);
-  for( auto& amp : amplitudes ) addMatrixElement( amp, mps );
-  m_isConstant = isFixedPDF(mps);
-  m_normalisations.resize( m_matrixElements.size(), m_matrixElements.size() );
-  ThreadPool tp(8);
-  for( auto& mE: m_matrixElements )
-    tp.enqueue( [&]{ CompilerWrapper().compile( mE.pdf, this->m_objCache); } );
-}
-
-void CoherentSum::addMatrixElement( std::pair<Particle, CouplingConstant>& particleWithCouplingConstant, const MinuitParameterSet& mps )
-{
-  auto& protoParticle = particleWithCouplingConstant.first;
-  auto& coupling      = particleWithCouplingConstant.second;
-  if ( !protoParticle.isStateGood() ) return;
-  const std::string name = protoParticle.uniqueString();
-  DebugSymbols dbExpressions;
-  INFO( name ); 
-  for ( auto& mE : m_matrixElements ) {
-    if ( name == mE.decayTree.uniqueString() ) return;
+  for( auto& amp : amplitudes ) INFO( amp.first.decayDescriptor() );
+  m_matrixElements.resize( amplitudes.size() );
+  m_normalisations.resize( m_matrixElements.size(), m_matrixElements.size() ); 
+  ThreadPool tp(1);
+  for(size_t i = 0; i < m_matrixElements.size(); ++i){
+    tp.enqueue( [i,this,&mps,&amplitudes]{ 
+    m_matrixElements[i] = TransitionMatrix<complex_t>( amplitudes[i].first, amplitudes[i].second, mps, this->m_evtType.getEventFormat(), this->m_dbThis);
+    CompilerWrapper().compile( m_matrixElements[i].pdf, this->m_objCache); } );
   }
-  m_matrixElements.emplace_back(protoParticle, coupling, mps, m_evtType.getEventFormat(), m_dbThis);
+  m_isConstant = false ;
 }
 
 void CoherentSum::prepare()
@@ -68,11 +58,9 @@ void CoherentSum::prepare()
   if ( m_weightParam != nullptr ) m_weight = m_weightParam->mean();
   if ( m_isConstant && m_prepareCalls != 0 ) return;
   transferParameters(); 
-
   std::vector<unsigned int> changedPdfIndices;
   ProfileClock clockEval; 
   bool printed    = false;
-
   for ( unsigned int i = 0; i < m_matrixElements.size(); ++i ) {
     auto& pdf = m_matrixElements[i].pdf;
     pdf.prepare();
@@ -112,9 +100,9 @@ void CoherentSum::prepare()
 void CoherentSum::updateNorms( const std::vector<unsigned int>& changedPdfIndices )
 {
   for ( auto& i : changedPdfIndices ) m_integrator.prepareExpression( m_matrixElements[i].pdf );
-  std::vector<size_t> cacheIndex; 
-  for( auto& m : m_matrixElements )  
-    cacheIndex.push_back( m_integrator.events().getCacheIndex( m.pdf ) );
+  std::vector<size_t> cacheIndex;
+  std::transform( m_matrixElements.begin(), m_matrixElements.end(), std::back_inserter(cacheIndex), 
+    [this](auto& m){ return this->m_integrator.events().getCacheIndex( m.pdf ) ; } );
   for ( auto& i : changedPdfIndices )
     for ( size_t j = 0; j < size(); ++j )
       m_integrator.queueIntegral( cacheIndex[i], cacheIndex[j] ,i, j, &m_normalisations );
@@ -129,15 +117,15 @@ void CoherentSum::debug( const Event& evt, const std::string& nameMustContain )
   if ( nameMustContain == "" )
     for ( auto& pdf : m_matrixElements ) {
       auto A = pdf(evt);
-      INFO( std::setw(70) << pdf.decayTree.uniqueString() << " A = [ " 
-          << std::real(A)       << " " << std::imag(A) << " ] g = [ "
-          << std::real(pdf.coupling()) << " " << std::imag(pdf.coupling()) << " ]" );
+      INFO( std::setw(70) << pdf.decayTree.uniqueString() 
+          << " A = [ "  << std::real(A)              << " " << std::imag(A) 
+          << " ] g = [ "<< std::real(pdf.coupling()) << " " << std::imag(pdf.coupling()) << " ]" );
       if( m_dbThis ) pdf.pdf.debug( evt );
     }
   else
     for ( auto& pdf : m_matrixElements )
       if ( pdf.pdf.name().find( nameMustContain ) != std::string::npos ) pdf.pdf.debug( evt );
-
+  if( evt.cacheSize() != 0 ) 
   INFO( "Pdf = " << prob_unnormalised( evt ) );
 }
 
@@ -157,7 +145,7 @@ std::vector<FitFraction> CoherentSum::fitFractions(const LinearErrorPropagator& 
     }
     if( pCalc.calculators.size() == 0 ) continue;  
     auto fractions = pCalc(rule.first, linProp);
-    for( auto& f : fractions ) outputFractions.emplace_back(f);
+    std::transform( fractions.begin(), fractions.end(), std::back_inserter(outputFractions),[](auto& p){ return p;} );
   };
   auto ffForHead = m_protoAmplitudes.rulesForDecay(m_evtType.mother(), m_prefix);
   FitFractionCalculator<CoherentSum> iCalc(this, findIndices(m_matrixElements, m_evtType.mother()), recomputeIntegrals);
@@ -264,21 +252,6 @@ void CoherentSum::generateSourceCode(const std::string& fname, const double& nor
   stream.close();
 }
 
-bool CoherentSum::isFixedPDF(const MinuitParameterSet& mps) const
-{
-  for ( auto& matrixElement : m_matrixElements ) {
-    if( ! matrixElement.coupling.isFixed() ) return false; 
-  }
-  return true;
-}
-
-void CoherentSum::PConjugate()
-{
-  for ( auto& matrixElement : m_matrixElements ) {
-    if ( matrixElement.decayTree.finalStateParity() == -1 ) matrixElement.coupling.changeSign();
-  }
-}
-
 complex_t CoherentSum::getValNoCache( const Event& evt ) const
 {
   return std::accumulate( m_matrixElements.begin(), 
@@ -287,12 +260,23 @@ complex_t CoherentSum::getValNoCache( const Event& evt ) const
       [&evt]( auto& a, auto& b ){ return a + b.coefficient * b(evt);} );
 }
 
+complex_t CoherentSum::getValNoCache(const Event& evt, const size_t& offset) const
+{
+  return std::accumulate( m_matrixElements.begin(), 
+      m_matrixElements.end(), 
+      complex_t(0,0), 
+      [&evt,&offset]( auto& a, auto& b ){ return a + b.coefficient * b(evt, offset);} );
+}
+
 void CoherentSum::reset( bool resetEvents )
 {
   m_prepareCalls                                     = 0;
   m_lastPrint                                        = 0;
   for ( auto& mE : m_matrixElements ) mE.addressData = 999;
-  if ( resetEvents ) m_events = nullptr;
+  if ( resetEvents ){ 
+    m_events = nullptr;
+    m_integrator = Integrator<10>();
+  }
 }
 
 void CoherentSum::setEvents( EventList& list )
@@ -355,9 +339,8 @@ void CoherentSum::printVal(const Event& evt)
 std::vector<unsigned int> CoherentSum::cacheAddresses( const EventList& evts ) const
 {
   std::vector<unsigned int> addresses;
-  for ( auto& mE : m_matrixElements ) {
-    addresses.push_back( evts.getCacheIndex( mE.pdf ) );
-  }
+  std::transform( m_matrixElements.begin(), m_matrixElements.end(), std::back_inserter(addresses),
+      [&evts](auto& it ){ return evts.getCacheIndex( it.pdf ) ; } );
   return addresses;
 }
 

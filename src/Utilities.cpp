@@ -11,7 +11,7 @@
 #include <functional>
 #include <iostream>
 #include <utility>
-
+#include <numeric>
 #include "AmpGen/MsgService.h"
 
 std::vector<std::string> AmpGen::vectorFromFile( const std::string& filename, const char ignoreLinesThatBeginWith )
@@ -42,11 +42,8 @@ std::vector<std::string> AmpGen::split( const std::string& s, const std::vector<
 {
   std::vector<std::string> elems;
   std::stringstream ss( s );
-  std::string strDelim = "";
+  std::string strDelim = std::accumulate( delims.begin(), delims.end(), std::string("") );
   std::string line;
-
-  for ( auto& st : delims ) strDelim += st;
-
   while ( std::getline( ss, line ) ) {
     std::size_t prev = 0, pos;
     while ( ( pos = line.find_first_of( strDelim, prev ) ) != std::string::npos ) {
@@ -115,13 +112,13 @@ std::string AmpGen::replaceAll( const std::string& input, const std::string& toR
 // where Y and Z and A are also tree elements, by finding
 // the matching delimiter and the Z, A elements.
 
-std::vector<std::string> AmpGen::getItems( const std::string& tree, const std::vector<std::string>& brackets,
-                                   const std::string& seperator )
+std::vector<std::string> AmpGen::getItems( const std::string& tree, 
+                                           const std::vector<std::string>& brackets,
+                                           const std::string& seperator )
 {
   auto braces = vecFindAll( tree, brackets ); /// get a vector of positions of the brackets ///
   if ( braces.size() % 2 != 0 ) {
     ERROR( "Unmatched braces in expression: " << tree << " check string: " << braces.size() );
-    for ( auto& x : braces ) INFO( "char[" << x.first << "] = " << x.second );
     return std::vector<std::string>();
   }
 
@@ -145,11 +142,11 @@ std::vector<std::string> AmpGen::getItems( const std::string& tree, const std::v
   std::vector<std::string> daughterTrees;
   size_t begin_position = matched_braces.begin()->first + 1;
   for ( auto& comma : commas ) {
-    auto braces = matched_braces.begin() + 1;
-    for ( ; braces != matched_braces.end(); ++braces ) {
-      if ( comma > braces->first && comma < braces->second ) break;
+    auto itBrace = matched_braces.begin() + 1;
+    for ( ; itBrace != matched_braces.end(); ++itBrace ) {
+      if ( comma > itBrace->first && comma < itBrace->second ) break;
     }
-    if ( braces == matched_braces.end() ) {
+    if ( itBrace == matched_braces.end() ) {
       items.push_back( tree.substr( begin_position, comma - begin_position ) );
       begin_position = comma + 1;
     }
@@ -315,7 +312,7 @@ std::string AmpGen::expandGlobals( std::string path )
   do {
     pos = path.find( "$" );
     if ( pos == std::string::npos ) break;
-    size_t end_pos = std::string::npos;
+    size_t end_pos; // = std::string::npos;
     std::string variable_name;
     if ( path[pos + 1] == '{' ) {
       end_pos       = path.find( "}", pos );

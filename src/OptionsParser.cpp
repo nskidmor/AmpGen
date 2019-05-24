@@ -31,7 +31,7 @@ bool OptionsParser::ignoreThisLine( const std::string& line )
   return false;
 }
 
-void OptionsParser::setCommandLineArgs( int argc, char** argv )
+void OptionsParser::setCommandLineArgs( int argc, char** argv, const std::string& description )
 {
   printSplash();
   int x = 0;
@@ -60,6 +60,7 @@ void OptionsParser::setCommandLineArgs( int argc, char** argv )
   }
   if( m_printHelp ){
     std::cout << bold_on << "Usage: " << bold_off << argv[0] << italic_on << " options_file1.opt options_file2.opt --key1=value1 --key2=value2 ..." << italic_off << std::endl; 
+    if( description != "") std::cout << description << std::endl; 
     std::cout << bold_on << "Options: " << bold_off << std::endl; 
   }
 }
@@ -74,31 +75,30 @@ void OptionsParser::import( const std::string& fName )
   int braceDepth = 0 ; 
   std::vector<std::string> currentTokens; 
   processFile( fName, [this, &currentTokens, &braceDepth]( auto& line ) {
-      if ( this->ignoreThisLine( line ) ) return;
-      auto tokens = this->makeParsedStrings( line, braceDepth );
-      for ( auto& token : tokens ) currentTokens.push_back( token );
-      if ( tokens.size() == 0 ) return;
-      std::string name = currentTokens[0];
-      if ( name == "Import" && currentTokens.size() == 2 ) {
+    if ( this->ignoreThisLine( line ) ) return;
+    auto tokens = this->makeParsedStrings( line, braceDepth );
+    for ( auto& token : tokens ) currentTokens.push_back( token );
+    if ( tokens.size() == 0 ) return;
+    std::string name = currentTokens[0];
+    if ( name == "Import" && currentTokens.size() == 2 ) {
       this->import( expandGlobals( tokens[1] ) );
       currentTokens.clear();
       return;
-      }
-      if ( name == "Alias" && currentTokens.size() == 3 ) {
+    }
+    if ( name == "ParticlePropertiesList::Alias" && currentTokens.size() == 3 ) {
       ParticlePropertiesList::getMutable()->makeAlias( tokens[1], tokens[2] );
       currentTokens.clear();
       return;
-      }
-      if ( braceDepth == 0 ) {
-      if ( this->m_parsedLines.find( name ) != this->m_parsedLines.end() ) {
+    }
+    if ( braceDepth != 0 ) return;
+    if ( this->m_parsedLines.find( name ) != this->m_parsedLines.end() ) {
       WARNING( "Overwriting parameter: " << name );
-      }
-      currentTokens.erase( std::remove_if( currentTokens.begin(), currentTokens.end(),
-            []( const std::string& o ) { return o == "{" || o == "}"; } ),
-          currentTokens.end() );
-      this->m_parsedLines[name] = currentTokens;
-      currentTokens.clear();
-      }
+    }
+    currentTokens.erase( std::remove_if( currentTokens.begin(), currentTokens.end(),
+    []( const std::string& o ) { return o == "{" || o == "}"; } ),
+    currentTokens.end() );
+    this->m_parsedLines[name] = currentTokens;
+    currentTokens.clear();
   } );
 
 
@@ -116,7 +116,6 @@ std::vector<std::string> OptionsParser::makeParsedStrings( const std::string& li
 {
   std::string s = line;
   if ( s.empty() ) return {};
-
   s.push_back( ' ' );                         // makes sure we get last element
   s                                = " " + s; // makes things easier when we start with quotes.
   std::string::const_iterator prev = s.begin();
@@ -152,7 +151,7 @@ std::vector<std::string> OptionsParser::makeParsedStrings( const std::string& li
 
 
 bool                          OptionsParser::printHelp() { return getMe()->m_printHelp ; }   
-void                          OptionsParser::setArgs( int argc, char** argv ){ getMe()->setCommandLineArgs(argc, argv ) ; } 
+void                          OptionsParser::setArgs( int argc, char** argv , const std::string& description){ getMe()->setCommandLineArgs(argc, argv, description); } 
 void                          OptionsParser::setArg( const std::string& arg ){ getMe()->addArg( arg ); }
 OptionsParser::iterator       OptionsParser::find( const std::string& name )  { return m_parsedLines.find( name ); }
 OptionsParser::iterator       OptionsParser::begin() { return m_parsedLines.begin(); }

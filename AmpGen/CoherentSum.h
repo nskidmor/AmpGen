@@ -53,6 +53,7 @@ namespace AmpGen
     complex_t getVal( const Event& evt ) const;
     complex_t getVal( const Event& evt, const std::vector<unsigned int>& cacheAddresses ) const;
     complex_t getValNoCache( const Event& evt ) const;
+    complex_t getValNoCache( const Event& evt, const size_t& offset ) const;
     
     void transferParameters();
     void prepare();
@@ -64,7 +65,6 @@ namespace AmpGen
     void reset( bool resetEvents = false );
     void setEvents( EventList& list );
     void setMC( EventList& sim );
-    void PConjugate();
     void debug( const Event& evt, const std::string& nameMustContain="");
     void generateSourceCode( const std::string& fname, const double& normalisation = 1, bool add_mt = false );
     void resync();
@@ -75,7 +75,7 @@ namespace AmpGen
 
     std::map<std::string, std::vector<unsigned int>> getGroupedAmplitudes();
     Bilinears norms() const { return m_normalisations ; }
-  
+
   protected:
     std::vector<TransitionMatrix<complex_t>> m_matrixElements; ///< Vector of (expanded) matrix elements
     Bilinears m_normalisations;                  ///< Normalisation integrals
@@ -96,8 +96,6 @@ namespace AmpGen
     std::string m_objCache         = {""};       ///< Directory that contains (cached) amplitude objects
     std::string m_prefix           = {""};       ///< Prefix for matrix elements
     void addMatrixElement( std::pair<Particle, CouplingConstant>& particleWithCoupling, const MinuitParameterSet& mps );
-    bool isFixedPDF(const MinuitParameterSet& mps) const;
-
   };
 } // namespace AmpGen
 

@@ -93,6 +93,21 @@ std::pair<double, double> EventType::minmax( const std::vector<size_t>& indices,
     if ( std::find( indices.begin(), indices.end(), x ) == indices.end() ) max -= mass( x );
   return std::pair<double, double>( min * min / GeV, max * max / GeV );
 }
+std::pair<size_t, size_t> EventType::count(const size_t& index) const 
+{
+  if( index >= size() ){
+    ERROR("Looking for matching particles to index = " << index << " > size of eventType");
+    return std::pair<size_t, size_t>(0, 0);
+  }
+  std::pair<size_t,size_t> rt(0,0);
+  for( size_t j = 0 ; j < size(); ++j ){ 
+    if( EventType::operator[](j) == EventType::operator[](index) ){
+      rt.second++;
+      if( j < index ) rt.first++;
+    }
+  }
+  return rt;
+}
 
 std::vector<std::vector<unsigned int>> EventType::getBosePairs() const
 {
@@ -131,8 +146,8 @@ EventType EventType::conj( const bool& headOnly, const bool& dontConjHead ) cons
 {
   std::vector<std::string> type;
   type.push_back( dontConjHead ? m_mother : ParticlePropertiesList::get( m_mother )->anti().name() );
-
-  for ( auto& x : m_particleNames ) type.push_back( headOnly ? x : ParticlePropertiesList::get( x )->anti().name() );
+  std::transform( m_particleNames.begin(), m_particleNames.end(), std::back_inserter(type), 
+      [&](auto& x){ return headOnly ? x : ParticlePropertiesList::get(x)->anti().name() ; } );
   return EventType( type );
 }
 
@@ -142,8 +157,8 @@ std::vector<Projection> EventType::defaultProjections(const size_t& nBins) const
   std::vector<Projection> projections;
   for ( size_t r = 2; r < size(); ++r ) { /// loop over sizes ///
     std::vector<std::vector<size_t>>  combR = nCr( size(), r );
-    for ( auto& indices : combR )
-      projections.emplace_back( projection(nBins, indices, defaultObservable ) );
+    std::transform( combR.begin(), combR.end(), std::back_inserter(projections), 
+      [&](auto& index){ return this->projection(nBins, index, defaultObservable ); } );
   }
   return projections;
 }
@@ -153,7 +168,7 @@ Projection EventType::projection(const size_t& nBins, const std::vector<size_t>&
   bool useRootLabelling = NamedParameter<bool>("EventType::UseRootTEX", false );
   auto mm               = minmax(indices, true);
   std::string gevcccc   = useRootLabelling ? "GeV^{2}/c^{4}" : "\\mathrm{GeV}^{2}/c^{4}";
-  std::string gevcc     = useRootLabelling ? "GeV/c^{2}" : "\\mathrm{GeV}/c^{2}";
+  std::string gevcc     = useRootLabelling ? "GeV/c^{2}"     : "\\mathrm{GeV}/c^{2}";
   if( observable == "mass2" )
     return Projection( [indices]( const Event& evt ) { return evt.s( indices ); },
         "s" + vectorToString( indices ),
@@ -211,9 +226,7 @@ std::function<void( Event& )> EventType::symmetriser() const
 
 bool EventType::has( const std::string& name ) const
 {
-  for ( auto& it : m_particleNames )
-    if ( it == name ) return true;
-  return false;
+  return std::any_of( m_particleNames.begin(), m_particleNames.end(), [&name](auto& it) { return it == name ; } );
 }
 
 bool EventType::isTimeDependent() const { return m_timeDependent; }
@@ -232,3 +245,7 @@ std::string convertTeXtoROOT( std::string input )
   return input;
 }
 
+std::string EventType::decayDescriptor() const
+{
+  return mother()+"{" + vectorToString(m_particleNames,",") +"}" ;
+}

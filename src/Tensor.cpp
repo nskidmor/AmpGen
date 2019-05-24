@@ -35,19 +35,7 @@ Tensor::Tensor( const std::vector<Expression>& elements )
   setupCoordinates();
   for(auto& element : elements) append( element );
 }
-/*
-Tensor::Tensor( const std::vector<Tensor>& elements )
-{
-  if( elements.size() == 0 ) return Tensor();
-  std::vector<size_t> rank;
-  rank.push_back( elements.size() ); 
-  for( auto& d : element[0].dims() ) rank.push_back( d );
-  for( int i = 0 ; i < elements.size(); ++i )
-  {
-   
-  } 
-}
-*/
+
 Expression Tensor::get( const size_t& co )
 {
   if ( co >= m_elements.size() )
@@ -75,9 +63,8 @@ size_t Tensor::rank() const { return m_dim.size(); }
 
 int Tensor::metricSgn( const std::vector<size_t>& coordinates ) const
 {
-  int sgn = 1;
-  for ( auto& coord : coordinates ) sgn *= ( coord == 3 ) ? 1 : -1;
-  return sgn;
+  return std::accumulate( coordinates.begin(), coordinates.end(), 1, 
+      [](auto& prod, auto& co){ return prod * ( ( co == 3) ? 1 : -1 ) ;} ); 
 }
 
 int Tensor::metricSgn( const size_t& index ) const { return metricSgn( coords( index ) ); }
@@ -89,8 +76,7 @@ void Tensor::append( const std::string& value )    { m_elements.emplace_back( Pa
 
 void Tensor::setupCoordinates()
 {
-  int st=1;
-  for( auto& d : m_dim ) st *= d; 
+  int st = std::accumulate( m_dim.begin(), m_dim.end(), 1, std::multiplies<int>() );
   DEBUG( "Setting up coordinates: " << dimString() << " coordinate mapping = " << st );
   m_symmetrisedCoordinates.resize( st  );
   std::iota( m_symmetrisedCoordinates.begin(), m_symmetrisedCoordinates.end(), 0 );
@@ -157,11 +143,7 @@ std::string Tensor::coordinates_to_string( const std::vector<size_t>& coordinate
 
 size_t Tensor::nElements() const
 {
-  size_t dim = 1;
-  for ( auto& d : m_dim ) {
-    dim *= ( d != 0 ) ? d : 1;
-  }
-  return dim;
+  return std::accumulate( m_dim.begin(), m_dim.end(), 1, [](auto& dim, auto& d){ return dim * ( d == 0 ? 1 : d ) ; } );  
 }
 const std::string Tensor::dimString() const 
 {
@@ -457,13 +439,12 @@ TensorProxy AmpGen::operator*( const TensorProxy& t1, const TensorProxy& t2 )
     } while ( ++i < t2_size );
     
     Expression elementExpression = 0;
-    for( unsigned int i=0; i<nElementsInSum; ++i) {
-      auto contractedCoordinates = Tensor::index_to_coordinates( i, contractionMatrix );
+    for( unsigned int m=0; m<nElementsInSum; ++m) {
+      auto contractedCoordinates = Tensor::index_to_coordinates( m, contractionMatrix );
       int sign                   = 1;
-      for( unsigned int j=0; j<contractions.size(); ++j) {
-        t1_coords[contractions[j].i] = contractedCoordinates[j];
-        t2_coords[contractions[j].j] = contractedCoordinates[j];
-        sign *= ( contractedCoordinates[j] ) == 3 ? 1 : contractions[j].sgn;
+      for( unsigned int n=0; n<contractions.size(); ++n) {
+        t1_coords[contractions[n].i] = t2_coords[contractions[n].j] = contractedCoordinates[n];
+        sign *= ( contractedCoordinates[n] ) == 3 ? 1 : contractions[n].sgn;
       }
       elementExpression = elementExpression + sign * t1_tensor[t1_coords] * t2_tensor[t2_coords];
     }
@@ -637,7 +618,6 @@ const Tensor AmpGen::LeviCivita( const size_t& rank )
     return product;
   };
   int p0 = permutation_sign( indices );
-
   Tensor result( dim ); /// create tensor of rank N ///
   do {
     size_t index = result.index( indices );
