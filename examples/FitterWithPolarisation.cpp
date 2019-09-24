@@ -60,8 +60,6 @@ int main( int argc, char* argv[] )
   if( dataFile == "" ) FATAL("Must specify input with option " << italic_on << "DataSample" << italic_off );
   if( pNames.size() == 0 ) FATAL("Must specify event type with option " << italic_on << " EventType" << italic_off);
 
-  [[maybe_unused]]
-  size_t      nThreads = NamedParameter<size_t>     ("nCores"    , 8           , "Number of threads to use" );
   size_t      seed     = NamedParameter<size_t>     ("Seed"      , 0           , "Random seed used" );
   
   TRandom3 rndm;
@@ -71,6 +69,7 @@ int main( int argc, char* argv[] )
   INFO("LogFile: " << logFile << "; Plots: " << plotFile );
   
 #ifdef _OPENMP
+  size_t      nThreads = NamedParameter<size_t>     ("nCores"    , 8           , "Number of threads to use" );
   omp_set_num_threads( nThreads );
   INFO( "Setting " << nThreads << " fixed threads for OpenMP" );
   omp_set_dynamic( 0 );
