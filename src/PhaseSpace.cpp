@@ -21,8 +21,10 @@ PhaseSpace::PhaseSpace( const EventType& type, TRandom* rand ) :
   m_rand(rand), m_type(type) 
 {
   setDecay( type.motherMass(), type.masses() );
-  if ( type.isTimeDependent() )
-    m_decayTime = 6.582119514 / ( ParticlePropertiesList::get( type.mother() )->width() * pow( 10, 13 ) );
+  if ( type.isTimeDependent() ){
+    INFO("Generating with time-dependence");
+    m_decayTime = ParticlePropertiesList::get( type.mother() )->lifetime();
+  }
 }
 
 PhaseSpace::PhaseSpace( const Particle& particle, TRandom* rand ) : 
@@ -38,16 +40,16 @@ Event PhaseSpace::makeEvent(const size_t& cacheSize)
   std::array<double, kMAXP> rno;
   std::array<double, kMAXP> pd;
   std::array<double, kMAXP> invMas; 
-  Event rt( 4 * m_nt, cacheSize);
+  Event rt(4*m_nt + m_type.isTimeDependent(), cacheSize);
 
   rno[0] = 0;
-  unsigned int n;
+  size_t n;
 
   double wt = m_wtMax;
   do {
     wt     = m_wtMax;
     rno[0] = 0;
-    for( n = 1; n < m_nt - 1; n++ ) rno[n] = rndm(); // m_nt-2 random numbers
+    for( n = 1; n < m_nt - 1; n++ ) rno[n] = m_rand->Rndm(); // m_nt-2 random numbers
     rno[m_nt - 1]                          = 1;
     std::sort( rno.begin() + 1, rno.begin() + m_nt );
     double sum = 0;
@@ -59,15 +61,15 @@ Event PhaseSpace::makeEvent(const size_t& cacheSize)
       pd[n] = q( invMas[n + 1], invMas[n], m_mass[n + 1] );
       wt *= pd[n];
     }
-  } while ( wt < rndm() );
+  } while ( wt < m_rand->Rndm() );
   
   rt.set(0, { 0, pd[0], 0, sqrt( pd[0] * pd[0] + m_mass[0] * m_mass[0] )} );
 
   for(size_t i = 1 ; i != m_nt ; ++i ){  
     rt.set( i, { 0, -pd[i-1], 0, sqrt( pd[i-1] * pd[i-1] + m_mass[i] * m_mass[i] ) } );
-    double cZ   = 2 * rndm() - 1;
+    double cZ   = 2 * m_rand->Rndm() - 1;
     double sZ   = sqrt( 1 - cZ * cZ );
-    double angY = 2 * M_PI * rndm();
+    double angY = 2 * M_PI * m_rand->Rndm();
     double cY   = cos(angY);
     double sY   = sin(angY);
     for (size_t j = 0; j <= i; j++ ) {

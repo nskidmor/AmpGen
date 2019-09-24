@@ -31,23 +31,20 @@ using namespace AmpGen;
 using namespace std::complex_literals; 
 
 Particle::Particle()
-{
-  m_defaultModifier = NamedParameter<std::string>("Particle::DefaultModifier","", "Default modifier to use for lineshapes, for example to use normalised vs unnormalised Blatt-Weisskopf factors.");
-  m_spinFormalism   = NamedParameter<std::string>("Particle::SpinFormalism"  ,"Covariant", "Spin formalism to use, can choose between Covariant and Canonical formalisms");
-  m_spinBasis       = NamedParameter<std::string>("Particle::SpinBasis"      ,"Dirac", 
+  : m_spinFormalism   { NamedParameter<std::string>("Particle::SpinFormalism"  ,"Covariant", "Spin formalism to use, can choose between Covariant and Canonical formalisms") }
+  , m_spinBasis       { NamedParameter<std::string>("Particle::SpinBasis"      ,"Dirac", 
                       optionalHelpString("Basis to use for calculating external polarisation tensors / spinors.", {
                       {"Dirac", "Quantises along the z-axis"}
-                    , {"Weyl" , "Quantises along the direction of motion"}} ) ); 
-  
-}
+                    , {"Weyl" , "Quantises along the direction of motion"}} ) )}
+  , m_defaultModifier { NamedParameter<std::string>("Particle::DefaultModifier","", "Default modifier to use for lineshapes, for example to use normalised vs unnormalised Blatt-Weisskopf factors.") }
+  {}
 
 Particle::Particle( const std::string& name, const Particle& p1, const Particle& p2 ) 
   : Particle() 
 {
   m_props = ParticlePropertiesList::get( name );
   m_name  = name;
-  m_daughters.push_back(std::make_shared<Particle>(p1));
-  m_daughters.push_back(std::make_shared<Particle>(p2));
+  m_daughters = { std::make_shared<Particle>(p1), std::make_shared<Particle>(p2) };
   pdgLookup();
   sortDaughters();
   for ( auto& d : m_daughters ) d->setTop( false );
@@ -58,8 +55,7 @@ Particle::Particle( const int& pdgID, const Particle& p1, const Particle& p2 )
   : Particle()
 {
   m_props = ParticlePropertiesList::get( pdgID );
-  m_daughters.push_back( std::make_shared<Particle>( p1 ) );
-  m_daughters.push_back( std::make_shared<Particle>( p2 ) );
+  m_daughters = {std::make_shared<Particle>( p1 ) , std::make_shared<Particle>( p2 ) };
   if ( m_props != nullptr ) m_name = m_props->name();
   pdgLookup();
   sortDaughters();
@@ -102,13 +98,7 @@ Particle::Particle( const std::string& decayString, const std::vector<std::strin
     ERROR( "Amplitude " << decayString << " not configured correctly" );
   }
   if ( finalStates.size() == fs.size() ) {
-    std::string finalStateString = vectorToString( finalStates, " ");
-    for ( auto used : hasUsedFinalState ) {
-      m_isStateGood &= used;
-    }
-    if ( !isStateGood() ) {
-      DEBUG( "Amplitude " << decayString << " does not match requested event type " << finalStateString );
-    }
+    m_isStateGood = std::all_of( hasUsedFinalState.begin(), hasUsedFinalState.end(),[](const auto& b){return b;} );
   }
   m_uniqueString = makeUniqueString();
 }
@@ -124,7 +114,9 @@ Particle::Particle( const std::string& name, const unsigned int& index ) : Parti
 
 void Particle::parseModifier( const std::string& mod )
 {
-  if( mod.size() == 1 )
+  if ( Lineshape::Factory::isLineshape( mod ) )
+    m_lineshape = mod;
+  else if( mod.size() == 1 )
   {
     DEBUG( "Modifier = " << mod );
     if ( mod == "S" ) m_orbital = 0;
@@ -143,8 +135,6 @@ void Particle::parseModifier( const std::string& mod )
     parseModifier( mod.substr(0,1) );
     parseModifier( mod.substr(1,1) );
   }
-  else if ( Lineshape::Factory::isLineshape( mod ) )
-    m_lineshape = mod;
 }
 
 double Particle::spin() const { return double( m_props->twoSpin() / 2. ) ; }
@@ -195,7 +185,13 @@ void Particle::pdgLookup()
         << " d1     =  " << m_daughters[1]->name() );
   }
   if ( m_orbital == 0 ) m_orbital = m_minL; // define in ground state unless specified
-  for ( auto& d : m_daughters ) d->setTop( false );
+  int charge = 0; 
+  for ( auto& d : m_daughters ){
+    d->setTop( false );
+    charge += d->props()->charge();
+  }
+  if( m_minL == 999 ) ERROR("Decay: " << m_name << " does not appear to have an allowed spin-orbit configuration");
+  if( m_daughters.size() != 0 && m_props->charge() != charge ) ERROR("Decay: " << m_name << " does not conserve (electric) charge");
 }
 
 Tensor Particle::P() const
@@ -230,6 +226,22 @@ Tensor Particle::Q() const
 
 std::shared_ptr<Particle> Particle::daughter( const size_t& index ) { return ( m_daughters[index] ); }
 std::shared_ptr<Particle> Particle::daughter( const size_t& index ) const { return m_daughters[index]; }
+
+std::shared_ptr<Particle> Particle::daughter( const std::string& name, const int& maxDepth ) const 
+{
+  if( maxDepth == -1 )
+  {
+    auto fs = getFinalStateParticles();
+    for( auto& f : fs ) if( f->name() == name ) return f;
+    ERROR("Particle: " << name << " not found amongst decay products!");
+  }
+  else {
+    for( auto& d : m_daughters ) if( d->name() == name ) return d;
+    ERROR("Particle: " << name << " not found amongst decay products!");
+  }
+  return std::shared_ptr<Particle>();
+}
+
 
 std::string Particle::orbitalString() const
 {
@@ -318,15 +330,16 @@ Expression Particle::propagator( DebugSymbols* db ) const
   Expression total( 1. );
   DEBUG( "Getting lineshape " << m_lineshape << " for " << m_name );
   Expression s = massSq();
-  if ( m_daughters.size() == 2 ) {
-    auto prop = Lineshape::Factory::get(m_lineshape, s, daughter(0)->massSq(), daughter(1)->massSq(), m_name, m_orbital, db);
-    total = total * make_cse(prop);
-  }
-  else if ( m_daughters.size() == 3 ) {
-    std::string shape = m_lineshape == "BW" ? "SBW" : m_lineshape;
-    auto prop = Lineshape::Factory::get(shape, massSq(), {daughter(0)->P(), daughter(1)->P(), daughter(2)->P()}, m_name, m_orbital, db );
-    total = total * make_cse(prop);  
-  }  
+  Expression prop = 1; 
+  if ( m_daughters.size() == 2 ) 
+    prop = Lineshape::Factory::get(m_lineshape, s, daughter(0)->massSq(), daughter(1)->massSq(), m_name, m_orbital, db);
+  else if ( m_daughters.size() >= 3 )
+    prop = Lineshape::Factory::get(m_lineshape == "BW" ? "SBW" : m_lineshape, *this, db );
+  else if ( m_daughters.size() == 1 && m_lineshape != "BW" && m_lineshape != "FormFactor" )
+  { 
+    prop = Lineshape::Factory::get(m_lineshape, *this, db );
+  } 
+  total = total * make_cse(prop);
   for(auto& d : m_daughters) total = total*make_cse(d->propagator(db));
   if(db != nullptr) db->emplace_back("A("+uniqueString()+")", total);
   return total;
@@ -388,7 +401,8 @@ Expression Particle::getExpression( DebugSymbols* db, const unsigned int& index 
   bool sumAmplitudes    = !hasModifier("Inco");
   bool includeSpin      = !hasModifier("BgSpin0");
   std::vector<int> exchangeParities;
-  for( auto& p : finalStateParticles ) exchangeParities.push_back( p->props()->isFermion() ? -1 : 1 ); 
+  std::transform( finalStateParticles.begin(), finalStateParticles.end(), std::back_inserter(exchangeParities), 
+      [](const auto& p){ return p->props()->isFermion() ? -1 : 1; } );
   for(auto& ordering : orderings){
     auto exchangeParity = minSwaps( ordering, exchangeParities );   
     setOrdering( ordering );
@@ -413,7 +427,8 @@ Expression Particle::getExpression( DebugSymbols* db, const unsigned int& index 
       }
     }
     if ( includeSpin && spinFormalism == "Canonical" ){
-      spinFactor = helicityAmplitude(*this, TransformSequence(), m_props->isBoson() ? polState() : double(polState())/2.0, db);
+      TransformSequence t = TransformSequence();
+      spinFactor = helicityAmplitude(*this, t, m_props->isBoson() ? polState() : double(polState())/2.0, db);
     }
     if( db != nullptr ){
       std::string finalStateString="";
@@ -527,23 +542,6 @@ Tensor Particle::externalSpinTensor(const int& polState, DebugSymbols* db ) cons
   std::string js = m_props->isBoson() ? std::to_string(m_props->twoSpin()/2) : std::to_string(m_props->twoSpin()) +"/2";
   WARNING("Spin tensors not implemented for spin J = " << js << "; m = " << m_polState << " " << m_name ); 
   return Tensor( std::vector<double>( {1.} ), Tensor::dim(0) );
-}
-
-bool Particle::checkExists() const
-{
-  bool success = true;
-  if ( m_daughters.size() == 2 ) {
-    success &= Vertex::Factory::isVertex( vertexName() );
-    if ( !success ) {
-      ERROR( uniqueString() );
-      ERROR( "Spin configuration not found J = "
-          << spin() << " L  =  " << m_orbital << " l' = " << m_spinConfigurationNumber
-          << " s1 = " << m_daughters[0]->spin() << " s2 = " << m_daughters[1]->spin() );
-    }
-    success &= daughter(0)->checkExists() & daughter(1)->checkExists();
-  }
-  if ( success == false ) ERROR( uniqueString() << " is not described in IVertex" );
-  return success;
 }
 
 std::pair<size_t, size_t> Particle::orbitalRange( const bool& conserveParity ) const
@@ -724,11 +722,11 @@ void Particle::setDaughter( const Particle& particle, const unsigned int& index 
 std::vector<std::shared_ptr<Particle>> Particle::daughters() const { return m_daughters; }
 bool Particle::operator<( const Particle& other )
 {
-  if ( spin() != other.spin() ) return spin() > other.spin();
-  if ( !isStable() && other.isStable() ) return true;
-  if ( isStable() && !other.isStable() ) return false;
-  if ( mass() != other.mass() ) return mass() > other.mass();
-  if ( std::abs( props()->pdgID() )  == std::abs( other.props()->pdgID() )
+  if ( spin()      !=  other.spin()      ) return spin() > other.spin();
+  if ( !isStable() &&  other.isStable()  ) return true;
+  if ( isStable()  && !other.isStable()  ) return false;
+  if ( mass()      !=  other.mass()      ) return mass() > other.mass();
+  if ( std::abs(props()->pdgID())  == std::abs(other.props()->pdgID() )
       && props()->pdgID() != other.props()->pdgID() ) return props()->pdgID() > other.props()->pdgID();
   if ( props()->charge() != other.props()->charge() ) return props()->charge() > other.props()->charge();
   if ( props()->pdgID() != other.props()->pdgID() ) return props()->pdgID() > other.props()->pdgID();
@@ -744,7 +742,7 @@ EventType Particle::eventType() const
 {
   std::vector<std::string> names = {m_name};
   auto fs                        = getFinalStateParticles( false );
-  for ( auto& p : fs ) names.push_back( p->name() );
+  std::transform(fs.begin(), fs.end(), std::back_inserter(names), [](const auto& p){ return p->name(); } );
   return EventType( names );
 }
 

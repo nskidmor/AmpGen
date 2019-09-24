@@ -164,6 +164,7 @@ Expression ThreeBodyCalculator::PartialWidth::spinAverageMatrixElement(
 ThreeBodyCalculator::ThreeBodyCalculator( const std::string& head, MinuitParameterSet& mps, const size_t& nKnots, const double& min, const double& max)
   : m_min(min),
     m_max(max),
+    m_norm(1),
     m_nKnots(nKnots),
     m_name(head),
     m_mps(&mps)
@@ -225,10 +226,10 @@ TGraph* ThreeBodyCalculator::widthGraph( const double& mNorm )
   return g;
 }
 
-ThreeBodyCalculator::PartialWidth::PartialWidth( const EventType& evt, MinuitParameterSet& mps ) :
-    fcs( evt, mps, "" )
-    , integrator(1, evt.mass(0)*evt.mass(0), evt.mass(1)*evt.mass(1) , evt.mass(2)*evt.mass(2) )
-    , type(evt)
+ThreeBodyCalculator::PartialWidth::PartialWidth( const EventType& evt, MinuitParameterSet& mps )
+  : fcs( evt, mps, "" )
+  , integrator(1, evt.mass(0)*evt.mass(0), evt.mass(1)*evt.mass(1) , evt.mass(2)*evt.mass(2) )
+  , type(evt)
 {
   DebugSymbols msym;
   Expression matrixElementTotal = spinAverageMatrixElement( fcs.matrixElements(), &msym );
@@ -263,16 +264,13 @@ void ThreeBodyCalculator::makePlots(const double& mass, const size_t& x, const s
 {
   auto& sq      = m_widths[0].integrator;
   auto& evtType = m_widths[0].type;
-  if( mass != -1 ) evtType.setMotherMass( mass ); 
   auto& fcs     = m_widths[0].totalWidth;
   auto projection_operators = evtType.defaultProjections( 500 );
   int points = NamedParameter<int>( "nPoints", 50000000 );
   sq.setMother( evtType.motherMass() );
   prepare();
   auto fcn = [&](const double* evt) { return std::real(fcs(evt)); };
-
   sq.makePlot( fcn, Projection2D( projection_operators[x], projection_operators[y] ), "s01_vs_s02", points )->Write();
-
 }
 
 void ThreeBodyCalculator::debug( const double& m, const double& theta )
@@ -282,7 +280,7 @@ void ThreeBodyCalculator::debug( const double& m, const double& theta )
     Event event(12);
     width.integrator.setEvent({m,theta},event);
     event.print();
-    width.totalWidth.debug( event );
+    width.totalWidth.debug( event.address() );
   }
 }
 

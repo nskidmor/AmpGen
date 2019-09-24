@@ -51,6 +51,7 @@ namespace AmpGen
       std::vector<std::pair<Particle, CouplingConstant>> getMatchingRules( 
           const EventType& type, const std::string& prefix="" );
       std::vector<AmplitudeRule> processesThatProduce(const Particle& particle) const; 
+
     private:
       std::map<std::string, std::vector<AmplitudeRule>> m_rules;
   };
@@ -79,10 +80,10 @@ namespace AmpGen
     TransitionMatrix() = default;
     TransitionMatrix(const Particle& dt, 
                      const CouplingConstant& coupling, 
-                     const CompiledExpression<RT, const real_t*, const real_t*> & pdf) : 
+                     const CompiledExpression<RT, const real_t*, const real_t*> & amp) : 
           decayTree(dt), 
           coupling(coupling), 
-          pdf(pdf) {}
+          amp(amp) {}
 
     TransitionMatrix(Particle& dt, 
                      const CouplingConstant& coupling, 
@@ -90,22 +91,18 @@ namespace AmpGen
                      const std::map<std::string,size_t>& evtFormat, 
                      const bool& debugThis=false) :
       decayTree(dt),
-      coupling(coupling)
-    {
-      DebugSymbols db; 
-      auto expression = dt.getExpression(debugThis ? &db : nullptr);
-      pdf = CompiledExpression<RT,const real_t*, const real_t*>
-        (expression, dt.decayDescriptor(), evtFormat, debugThis ? db : DebugSymbols(), &mps );
-    }
+      coupling(coupling),
+      amp(decayTree.getExpression(debugThis ? &db : nullptr ), decayTree.decayDescriptor(), evtFormat, db, &mps ) {}
 
-    const RT operator()(const Event& event) const { return pdf(event.address() ); }
-    const RT operator()(const Event& event, const size_t& cacheOffset) const { return pdf(event.address() + cacheOffset); }
+    const RT operator()(const Event& event) const { return amp(event.address() ); }
+    const RT operator()(const Event& event, const size_t& cacheOffset) const { return amp(event.address() + cacheOffset); }
     const std::string decayDescriptor() const { return decayTree.decayDescriptor() ; }  
 
     Particle                                            decayTree;
     CouplingConstant                                    coupling;
     complex_t                                           coefficient;
-    CompiledExpression<RT,const real_t*,const real_t*>  pdf; 
+    DebugSymbols                                        db; 
+    CompiledExpression<RT,const real_t*,const real_t*>  amp; 
     size_t                                              addressData = {999};
   };
  

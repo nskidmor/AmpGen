@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <algorithm>
 #include <vector>
+#include <cmath>
 
 #include "AmpGen/ParticlePropertiesList.h"
 #include "AmpGen/MsgService.h"
@@ -17,9 +18,9 @@ void ParticleProperties::print( std::ostream& out ) const
 {
   out << "Mass  " << mass() << " +" << mErrPlus() << " -" << mErrMinus() << "\nWidth " << width() << " +" << wErrPlus()
     << " -" << wErrMinus() << "\n I=" << I() << ", G=" << G() << "\n J=" << J() << ", C=" << C() << ", P=" << P()
-    << "\n Q = " << charge() << "\n pdgID " << pdgID() << "\n name " << name() << "\n quark content: " << quarks()
+    << "\n Q = " << charge() << "\n pdgID " << pdgID() << "\n name " << name()
     << "\n net-quark-content " << netQuarkContent() << "\n is its own antiparticle? "
-    << ( isItsOwnAnti() ? "yes" : "no" ) << "\n radius " << radius() * GeV << " /GeV"
+    << ( hasDistinctAnti() ? "no" : "yes" ) << "\n radius " << radius() * GeV << " /GeV"
     << "\n";
 }
 
@@ -28,8 +29,8 @@ int ParticleProperties::chargeFromString( const std::string& ch, bool& status ) 
   if ( ch == "+" ) return 1;
   if ( ch == "-" ) return -1;
   if ( ch == " " ) return 0;
-  if ( ch == "0" ) return 0;
-  if ( ch == "++" ) return 2;
+  if ( ch == "0" )  return  0;
+  if ( ch == "++" ) return  2;
   if ( ch == "--" ) return -2;
   status = 0;
   return 0;
@@ -45,7 +46,7 @@ ParticleProperties::ParticleProperties( const std::string& pdg_string ) : m_netQ
     DEBUG( "Invalid line : " << pdg_string );
     return;
   }
-  for ( auto& st : s ) st = trim( st );
+  std::transform(s.begin(), s.end(), s.begin(), trim);
   bool status    = 1;
   m_mass         = lexical_cast<double>( s[0], status );
   m_mErrPlus     = lexical_cast<double>( s[1], status );
@@ -56,10 +57,10 @@ ParticleProperties::ParticleProperties( const std::string& pdg_string ) : m_netQ
   m_pdgID        = lexical_cast<int>( s[12], status );
   m_Rexist       = lexical_cast<int>( s[14], status );
   m_Gparity      = chargeFromString( s[7], status );
-  m_Parity       = chargeFromString( s[9], status );
+  m_parity       = chargeFromString( s[9], status );
   m_Cparity      = chargeFromString( s[10], status );
   m_charge       = chargeFromString( s[13], status );
-  m_Isospin      = s[6];
+  m_isospin      = s[6];
   m_JtotalSpin   = s[8];
   m_status       = s[15][0];
   m_name         = s[16];
@@ -76,53 +77,36 @@ ParticleProperties::ParticleProperties( const std::string& pdg_string ) : m_netQ
   if( spin_status == 0 ){
     DEBUG("Spin of particle: " << name() << " could not be interpretted (J=" << m_JtotalSpin << ")"  );
   }
-  setRadius();
-  m_isValid = true;
-}
-
-void ParticleProperties::setRadius()
-{
-  double defaultRadius      = 1.5 / GeV; // 1.5/GeV;
-  double defaultCharmRadius = 5.0 / GeV;
+  m_radius = 1.5 / GeV; 
   bool isCharm = ( abs(pdgID()) == 421 || 
                    abs(pdgID()) == 411 || 
                    abs(pdgID()) == 431 || 
                    abs(pdgID()) == 4122 );
-  m_Radius     = isCharm ? defaultCharmRadius : defaultRadius;
+  if(isCharm) m_radius = 5.0 / GeV; 
+  m_isValid = true;
 }
 
-void ParticleProperties::antiQuarks()
-{
-  if ( m_quarks.empty() ) return;
-  swapChars(m_quarks, 'U', 'u');
-  swapChars(m_quarks, 'D', 'd');
-  swapChars(m_quarks, 'C', 'c');
-  swapChars(m_quarks, 'S', 's');
-  swapChars(m_quarks, 'T', 't');
-  swapChars(m_quarks, 'B', 'b');
-  unsigned int pos = m_quarks.find( "SqrT" );
-  if ( pos < m_quarks.size() ) {
-    m_quarks.replace( pos, 4, "sqrt" );
-  }
-}
-
-void ParticleProperties::antiQuarkContent() { m_netQuarkContent.antiThis(); }
-
-void ParticleProperties::antiCharge()
-{
-  swapChars( m_chargeString, '+', '-');
-  m_charge *= -1;
-}
 bool ParticleProperties::hasDistinctAnti() const { return !( m_Aformat == ' ' ); }
-
-bool ParticleProperties::barred() const { return m_Aformat == 'F'; }
 
 bool ParticleProperties::antiThis()
 {
   if ( !hasDistinctAnti() ) return false;
-  antiCharge();
-  antiQuarks();
-  antiQuarkContent();
+  swapChars( m_chargeString, '+', '-');
+  m_charge *= -1;
+  if( isFermion() ) m_parity *= -1;
+  if ( !m_quarks.empty() ){
+    swapChars(m_quarks, 'U', 'u');
+    swapChars(m_quarks, 'D', 'd');
+    swapChars(m_quarks, 'C', 'c');
+    swapChars(m_quarks, 'S', 's');
+    swapChars(m_quarks, 'T', 't');
+    swapChars(m_quarks, 'B', 'b');
+    unsigned int pos = m_quarks.find( "SqrT" );
+    if ( pos < m_quarks.size() ) {
+      m_quarks.replace( pos, 4, "sqrt" );
+    }
+  }
+  m_netQuarkContent.antiThis();
   m_pdgID *= -1;
   return true;
 }
@@ -141,7 +125,13 @@ std::string ParticleProperties::name() const
   fullName += m_chargeString;
   return fullName;
 }
-double ParticleProperties::radius() const { return m_Radius; }
+double ParticleProperties::radius() const { return m_radius; }
+
+double ParticleProperties::lifetime() const 
+{ 
+  return 6.582119514 / ( m_width * std::pow( 10, 13 ) );
+}
+
 
 bool ParticleProperties::isNonResonant() const
 {
@@ -156,7 +146,7 @@ bool ParticleProperties::isBoson() const {
   return ! isFermion();
 }
 
-std::ostream& operator<<( std::ostream& out, const ParticleProperties& pp )
+std::ostream& AmpGen::operator<<( std::ostream& out, const ParticleProperties& pp )
 {
   pp.print( out );
   return out;
@@ -179,7 +169,8 @@ std::string ParticleProperties::spinName() const {
   return "?";
 }
 
-const ParticleProperties* ParticleProperties::get( const std::string& name, const bool& quiet ){
+const ParticleProperties* ParticleProperties::get( const std::string& name, const bool& quiet )
+{
   return ParticlePropertiesList::get( name, quiet );
 }
 

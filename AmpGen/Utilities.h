@@ -12,7 +12,9 @@
 #include <typeinfo>
 #include <vector>
 #include <future>
-//#include <omp.h>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 #include "AmpGen/MsgService.h"
 #include "AmpGen/MetaUtils.h"
@@ -36,7 +38,6 @@ namespace AmpGen {
   template <class T>
     std::string vectorToString( const std::vector<T>& obj, const std::string& delim = "" )
     {
-      std::string returnValue;
       std::stringstream ss;
       if( obj.size() == 0 ) return "";
       for ( unsigned int i = 0 ; i < obj.size()-1; ++i ) 
@@ -46,9 +47,8 @@ namespace AmpGen {
     }
 
   template <class T, class F>
-    std::string vectorToString( const std::vector<T>& obj, const std::string& delim="", const F& functor =[](auto& f){ return f ; }  )
+    std::string vectorToString( const std::vector<T>& obj, const std::string& delim="", const F& functor =[](const T& f){ return f ; }  )
     {
-      std::string returnValue;
       std::stringstream ss;
       if( obj.size() == 0 ) return "";
       for ( unsigned int i = 0 ; i < obj.size()-1; ++i ) 
@@ -169,7 +169,9 @@ namespace AmpGen {
       {
         auto total = init; 
         auto size  = end-begin;
+        #ifdef _OPENMP
         #pragma omp parallel for reduction( +: total )
+        #endif
         for( int it = 0; it < size; ++it ){
           total += f(*(begin+it));
         }
@@ -191,7 +193,7 @@ namespace AmpGen {
   bool isDir( const std::string& fname );
   bool fileExists( const std::string& name );
 
-  std::vector<std::string> getListOfFiles( const std::string& directory, std::string patternString = "" );
+  std::vector<std::string> getListOfFiles(const std::string& directory, const std::string& patternString = "");
 
   void printSplash();
   void printReleaseNotes(const std::string& fname);

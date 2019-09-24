@@ -240,12 +240,18 @@ DEFINE_VERTEX( V_TS_D )
 
 DEFINE_VERTEX( f_fS_S )
 {
-  return Spin1hProjector(P)(a,b) * V1(b) * V2[0];
+  Tensor f_fS_Sv = Spin1hProjector(P)(a,b) * V1(b) * V2[0];
+  ADD_DEBUG_TENSOR( f_fS_Sv, db);
+  return f_fS_Sv; 
 }
+
 DEFINE_VERTEX( f_fS_P )
 {
   Tensor proj   = Spin1hProjector(P);
   Tensor L      = Orbital_PWave(P,Q);
+  ADD_DEBUG_TENSOR( P, db );
+  ADD_DEBUG_TENSOR( Q, db );
+  ADD_DEBUG_TENSOR( L, db );
   Tensor t      = proj(a, b) * Gamma[4](b,c) * slash(L)(c,d) * V1(d);
   return t; 
 }
@@ -389,7 +395,6 @@ DEFINE_VERTEX( S_ff_S ) { return Bar(V2)(a) * V1(a); }
 
 DEFINE_VERTEX( S_ff_S1 ){ return Bar(V2)(a) * Gamma[4](a,b) * V1(b); }
 
+DEFINE_VERTEX( V_ff_S ) { return Bar(V2)(a) * Gamma4Vec()(mu,a,b) * V1(b); }
 
-DEFINE_VERTEX( V_ff_P ) { return Bar(V2)(a) * Gamma4Vec()(mu,a,b) * V1(b); }
-
-DEFINE_VERTEX( V_ff_P1 ){ return Bar(V2)(a) * Gamma[4](a,b) * Gamma4Vec()(mu,b,c) * V1(c); }
+DEFINE_VERTEX( V_ff_S1 ){ return Bar(V2)(a) * Gamma[4](a,b) * Gamma4Vec()(mu,b,c) * V1(c); }

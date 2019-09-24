@@ -7,6 +7,7 @@
 #include "AmpGen/Event.h"
 #include "AmpGen/Projection.h"
 #include "AmpGen/Utilities.h"
+#include "AmpGen/MetaUtils.h"
 
 #include <chrono>
 #include <functional>
@@ -18,12 +19,13 @@
 #include <TH2D.h>
 #include <TTree.h>
 
-#ifdef __USE_OPENMP__
-#include <omp.h>
+#ifdef _OPENMP
+  #include <omp.h>
 #endif
 
 namespace AmpGen
 {
+
   DECLARE_ARGUMENT(Bins, size_t);
 
   class CompiledExpressionBase; 
@@ -37,6 +39,7 @@ namespace AmpGen
     double                              m_norm              = {0};
     size_t                              m_lastCachePosition = {0}; 
   public:
+    typedef Event value_type;
     EventList() = default;
     EventList( const EventType& type );
     template < class ... ARGS > EventList( const std::string& fname, const EventType& evtType, const ARGS&... args ) : EventList(evtType) 
@@ -91,91 +94,87 @@ namespace AmpGen
       if ( pdfIndex != m_pdfIndex.end() ) {
         return pdfIndex->second;
       } else {
-        size_t size            = m_lastCachePosition;
+        size_t lcp            = m_lastCachePosition;
         size_t expression_size = size_of == 0 ? 
           expression.returnTypeSize() / sizeof(complex_t) : size_of; 
-        if ( size >= at( 0 ).cacheSize() ) { 
-          WARNING("Cache index " << size << " exceeds cache size = " 
+        if (lcp >= at( 0 ).cacheSize() ) { 
+          WARNING("Cache index " << lcp << " exceeds cache size = " 
                                  << at(0).cacheSize() << " resizing to " 
-                                 << size + expression_size );
-    
-          for (auto& evt : *this) evt.resizeCache( size + expression_size );
+                                 << lcp + expression_size );
+          resizeCache( lcp + expression_size );
         }
         m_pdfIndex[key] = m_lastCachePosition;
         m_lastCachePosition += expression_size; 
-        return size;
+        return lcp;
       }
-    }
-    template <class FUNCTOR>
-    unsigned int extendEvent( const std::string& name, FUNCTOR func )
-    {
-      unsigned int index = this->begin()->size();
-      for ( auto& evt : *this ) evt.extendEvent(func(evt));
-      m_extensions[name] = index;
-      return index;
     }
 
     template <class FCN>
     void updateCache( const FCN& fcn, const size_t& index )
     {
+      #ifdef _OPENMP
       #pragma omp parallel for
+      #endif
       for ( unsigned int i = 0; i < size(); ++i ) {
         ( *this )[i].setCache(fcn(getEvent(i)), index);
       }
     }
-
-    TH2D* makeProjection( const Projection2D& projection, const ArgumentPack& args );
+    void reserveCache(const size_t& index);
+    void resizeCache(const size_t& newCacheSize );
+    TH1D* makeProjection(const Projection& projection  , const ArgumentPack& args = ArgumentPack()) const; 
+    TH2D* makeProjection(const Projection2D& projection, const ArgumentPack& args = ArgumentPack()) const;
     std::vector<TH1D*> makeProjections( const std::vector<Projection>& projections, const ArgumentPack& args );
 
-    template <class... ARGS>
-    std::vector<TH1D*> makeDefaultProjections( const ARGS&... args )
+    template <class... ARGS> std::vector<TH1D*> makeDefaultProjections( const ARGS&... args )
     {
       auto argPack = ArgumentPack( args... );
       size_t nBins = argPack.getArg<Bins>(100);
       auto proj = eventType().defaultProjections(nBins); 
       return makeProjections( proj , argPack );
     }
-    template <class... ARGS> 
-    std::vector<TH1D*> makeProjections( const std::vector<Projection>& projections, const ARGS&... args )
+
+    template <typename... ARGS> std::vector<TH1D*> makeProjections( const std::vector<Projection>& projections, const ARGS&... args )
     {
       return makeProjections( projections, ArgumentPack( args... ) );
     }
-    template <class... ARGS>
-    TH1D* makeProjection( const Projection& projection, const ARGS&... args )
+    
+    template <typename... ARGS, 
+              typename = std::enable_if_t< ! std::is_same<zeroType<ARGS...>, ArgumentPack>::value > > 
+    TH1D* makeProjection( const Projection& projection, const ARGS&... args ) const
     {
       return makeProjection( projection, ArgumentPack(args...) );
     }
-    TH1D* makeProjection( const Projection& projection, const ArgumentPack& args );
-    
-    template <class... ARGS>
+
+    template <typename... ARGS, 
+              typename = std::enable_if_t< ! std::is_same<zeroType<ARGS...>, ArgumentPack>::value > > 
     TH2D* makeProjection( const Projection2D& projection, const ARGS&... args )
     {
       return makeProjection( projection, ArgumentPack(args...) );
     }
-    template <class FCN>
-    EventList& transform( FCN&& fcn )
+
+    template <class FCN> EventList& transform( FCN&& fcn )
     {
       for ( auto& event : m_data ) fcn( event );
       return *this;
     }
-    template <class FCN>
-    void filter( FCN&& fcn ){
+    
+    template <class FCN> void filter( FCN&& fcn ){
       size_t currentSize = size();
       m_data.erase( std::remove_if( m_data.begin(), m_data.end(), fcn ) , m_data.end() );
       INFO("Filter removes: " << currentSize - size() << " / " << currentSize << " events");
     }
   };
-  DECLARE_ARGUMENT(LineColor, int );
-  DECLARE_ARGUMENT(DrawStyle, std::string );
-  DECLARE_ARGUMENT(Selection, std::function<bool( const Event& )> );
-  DECLARE_ARGUMENT(WeightFunction, std::function<double( const Event& ) > );
-  DECLARE_ARGUMENT(Branches, std::vector<std::string> );
-  DECLARE_ARGUMENT(EntryList, std::vector<size_t> );
+  DECLARE_ARGUMENT(LineColor, int);
+  DECLARE_ARGUMENT(DrawStyle, std::string);
+  DECLARE_ARGUMENT(Selection, std::function<bool( const Event& )>);
+  DECLARE_ARGUMENT(WeightFunction, std::function<double( const Event& )>);
+  DECLARE_ARGUMENT(Branches, std::vector<std::string>);
+  DECLARE_ARGUMENT(EntryList, std::vector<size_t>);
   DECLARE_ARGUMENT(GetGenPdf, bool);
   DECLARE_ARGUMENT(CacheSize, size_t);
   DECLARE_ARGUMENT(Filter, std::string);
   DECLARE_ARGUMENT(WeightBranch, std::string);      
-  DECLARE_ARGUMENT(ApplySym, bool );  
+  DECLARE_ARGUMENT(ApplySym, bool);  
   DECLARE_ARGUMENT(Prefix, std::string);
 } // namespace AmpGen
 

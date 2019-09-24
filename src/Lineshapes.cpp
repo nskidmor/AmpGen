@@ -63,11 +63,11 @@ Expression AmpGen::BL( const Expression& s,
   return sqrt( BlattWeisskopf( q2 * radius * radius, L ) / BlattWeisskopf( q20 * radius * radius, L ) );
 }
 
-std::vector<Expression> AmpGen::parameterVector( const std::string& name, const unsigned int& nParam )
+std::vector<Expression> AmpGen::parameterVector( const std::string& name, const size_t& nParam )
 {
   std::vector<Expression> returnVector;
-  for ( unsigned int i = 0; i < nParam; ++i ) 
-    returnVector.push_back( Parameter( name + std::to_string( i ) ) );
+  for (size_t i = 0; i != nParam; ++i ) 
+    returnVector.emplace_back(Parameter(name + std::to_string(i)));
   return returnVector;
 }
 
@@ -123,8 +123,7 @@ Expression Lineshape::Factory::get( const std::string& lineshape, const Expressi
   }
 }
 
-Expression Lineshape::Factory::get(const std::string& lineshape, const Expression& s, const std::vector<Tensor>& p,
-                                   const std::string& particleName, const unsigned int& L,
+Expression Lineshape::Factory::get(const std::string& lineshape, const AmpGen::Particle& p,
                                    DebugSymbols* dbexpressions )
 {
   size_t pos = lineshape.find( "." );
@@ -132,9 +131,9 @@ Expression Lineshape::Factory::get(const std::string& lineshape, const Expressio
   if ( pos == std::string::npos ) {
     auto it = AmpGen::Factory<Lineshape::Base>::get( lineshape );
     if ( !it ) ERROR( "Lineshape : " << lineshape << " not found" );
-    return it->get(s, p, particleName, L, "", dbexpressions );
+    return it->get(p, "", dbexpressions );
   } else {
-    return AmpGen::Factory<Lineshape::Base>::get( lineshape.substr( 0, pos ) )->get(s, p, particleName, L, lineshape.substr( pos + 1 ), dbexpressions );
+    return AmpGen::Factory<Lineshape::Base>::get( lineshape.substr( 0, pos ) )->get(p, lineshape.substr( pos + 1 ), dbexpressions );
   }
 }
 

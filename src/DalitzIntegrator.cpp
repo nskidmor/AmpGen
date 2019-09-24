@@ -38,7 +38,12 @@ double DalitzIntegrator::sqDp1( const Event& evt ) const
   TLorentzVector p2( ( evt.address( 4 ) ) );
   TLorentzVector p3( ( evt.address( 8 ) ) );
   TLorentzVector pA = p1 + p2;
-  return acos( 2 * ( pA.Mag() - m_min ) / ( m_max - m_min ) - 1 ) / M_PI;
+  auto arg = 2 * ( pA.Mag() - m_min ) / ( m_max - m_min ) - 1;
+  if( arg > 1 || arg < -1 ){
+    ERROR("Argument: " << arg << " is out-of-bounds");
+    return -1;
+  }
+  return acos(arg)/M_PI;
 }
 double DalitzIntegrator::sqDp2( const Event& evt ) const
 {
@@ -169,14 +174,11 @@ TH2D* DalitzIntegrator::makePlot( const std::function<double(const double*)>& fc
     const std::string& name, const size_t& nSamples )
 {
   auto plot = projection.plot();
-  double event[12];
-  for ( unsigned int i = 0; i < 12; ++i ) event[i] = 0;
-  Event evtCache( 12 );
+  Event event( 12 );
   for ( unsigned int i = 0; i < nSamples; ++i ) {
     sqCo pos = {gRandom->Uniform(), gRandom->Uniform()};
     setEvent( pos, event );
-    evtCache.set( event );
-    auto obs_cos = projection( evtCache );
+    auto obs_cos = projection( event );
     plot->Fill( obs_cos.first, obs_cos.second, J( pos ) * fcn( event ) );
   }
   return plot;

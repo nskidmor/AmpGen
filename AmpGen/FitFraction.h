@@ -13,11 +13,10 @@ namespace AmpGen
   class EventType;
   class Particle;
 
-
   class FitFraction
   {
     public:
-      FitFraction(const std::string& line, const AmpGen::EventType& evtType);
+      FitFraction(const std::string& line);
       FitFraction(const std::string& name, const double& frac, const double& err);
       FitFraction() = default;
 
@@ -32,6 +31,7 @@ namespace AmpGen
       double m_value;
       double m_error;
   };
+  
   bool operator  <(const FitFraction& lhs, const FitFraction& rhs);
   bool operator  >(const FitFraction& lhs, const FitFraction& rhs);
   bool operator ==(const FitFraction& lhs, const FitFraction& rhs);
@@ -82,14 +82,14 @@ namespace AmpGen
       }
       return std::real(sum);
     }
-    real_t getVal( const size_t& index ) const {
+    real_t getVal( const size_t& index, const bool& getImaginaryPart = false) const {
       complex_t sum = 0; 
       for ( auto& i : calculators[index].i ) {
         for ( auto& j : calculators[index].j ) {
           sum += (*pdf)[i].coefficient * std::conj( (*pdf)[j].coefficient ) * ( j >= i ? pdf->norm(i, j) : std::conj(pdf->norm(j,i)) );
         }
       }
-      return std::real(sum) / norm();
+      return (getImaginaryPart ? std::imag(sum) : std::real(sum) ) / norm(); 
     }
     std::vector<FitFraction> operator()(const std::string& name, const LinearErrorPropagator& linProp )
     {

@@ -26,8 +26,11 @@
 #include "AmpGen/NamedParameter.h"
 #include "AmpGen/PolarisedSum.h"
 #include "AmpGen/OptionsParser.h"
+#include "AmpGen/enum.h"
 
 using namespace AmpGen;
+
+namespace AmpGen { make_enum(generatorType, CoherentSum, PolarisedSum, FixedLib, RGenerator) }
 
 struct FixedLibPDF {
   void* lib;
@@ -60,6 +63,7 @@ template <class PDF_TYPE, class PRIOR_TYPE>
   signalGenerator.fillEventList( pdf, events, nEvents );
 }
 
+
 int main( int argc, char** argv )
 {
   OptionsParser::setArgs( argc, argv );
@@ -67,9 +71,8 @@ int main( int argc, char** argv )
   size_t nEvents      = NamedParameter<size_t>     ("nEvents"  , 1, "Total number of events to generate" );
   size_t blockSize    = NamedParameter<size_t>     ("BlockSize", 100000, "Number of events to generate per block" );
   int seed            = NamedParameter<int>        ("Seed"     , 0, "Random seed used in event Generation" );
-  std::string outfile = NamedParameter<std::string>("Output"   , "Generate_Output.root" , "Name of output file" );
-  
-  std::string gen_type = NamedParameter<std::string>( "Type", "CoherentSum", optionalHelpString("Generator configuration to use:", 
+  std::string outfile = NamedParameter<std::string>("Output"   , "Generate_Output.root" , "Name of output file" ); 
+  auto genType        = NamedParameter<generatorType>( "Type", generatorType::CoherentSum, optionalHelpString("Generator configuration to use:", 
     { {"CoherentSum", "Full phase-space generator with (pseudo)scalar amplitude"}
     , {"PolarisedSum", "Full phase-space generator with particles carrying spin in the initial/final states"}
     , {"FixedLib", "Full phase-space generator with an amplitude from a precompiled library"}
@@ -81,6 +84,7 @@ int main( int argc, char** argv )
   #ifdef _OPENMP
     unsigned int concurentThreadsSupported = std::thread::hardware_concurrency();
     unsigned int nCores                    = NamedParameter<unsigned int>( "nCores", concurentThreadsSupported, "Number of cores to use (OpenMP only)" );
+    INFO("Using: " << nCores  << " / " << concurentThreadsSupported  << " threads" );
     omp_set_num_threads( nCores );
     omp_set_dynamic( 0 );
   #endif
@@ -91,33 +95,31 @@ int main( int argc, char** argv )
   MinuitParameterSet MPS;
   MPS.loadFromStream();
   
-  Particle p;
-  
   EventType eventType( NamedParameter<std::string>( "EventType" , "", "EventType to generate, in the format: \033[3m parent daughter1 daughter2 ... \033[0m" ).getVector(),
                        NamedParameter<bool>( "GenerateTimeDependent", false , "Flag to include possible time dependence of the amplitude") );
 
+  INFO("Generating time-dependence? " << eventType.isTimeDependent() );
   EventList accepted( eventType );
 
   INFO("Generating events with type = " << eventType << " with seed " << seed);
 
-  if ( gen_type == "CoherentSum" ) {
+  if ( genType == generatorType::CoherentSum ) {
     CoherentSum sig( eventType, MPS );
     PhaseSpace phsp(eventType,&rand);
     GenerateEvents( accepted, sig, phsp , nEvents, blockSize, &rand );
   } 
-  else if ( gen_type == "PolarisedSum" ){
-    PolarisedSum sig( eventType, MPS );
-    
+  else if ( genType == generatorType::PolarisedSum ){
+    PolarisedSum sig( eventType, MPS ); 
     RecursivePhaseSpace phsp( sig.matrixElements()[0].decayTree.quasiStableTree() , eventType, &rand );
     GenerateEvents( accepted, sig, phsp, nEvents, blockSize, &rand );
   }
-  else if ( gen_type == "RGenerator" ) {
+  else if ( genType == generatorType::RGenerator ) {
     CoherentSum sig( eventType, MPS, "" );
     Generator<RecursivePhaseSpace> signalGenerator( sig[0].decayTree.quasiStableTree(), eventType );
     signalGenerator.setRandom( &rand );
     signalGenerator.fillEventList( sig, accepted, nEvents );
   }
-  else if ( gen_type == "FixedLib" ) {
+  else if ( genType == generatorType::FixedLib ) {
     Generator<> signalGenerator( eventType );
     signalGenerator.setRandom( &rand );
     signalGenerator.setBlockSize( blockSize );
@@ -126,7 +128,7 @@ int main( int argc, char** argv )
     signalGenerator.fillEventList( pdf, accepted, nEvents );
   } 
   else {
-    ERROR("Did not recognise configuration: " << gen_type );
+    FATAL("Did not recognise configuration: " << genType );
   }
   if( accepted.size() == 0 ) return -1;
   TFile* f = TFile::Open( outfile.c_str(), "RECREATE" );
@@ -135,15 +137,12 @@ int main( int argc, char** argv )
   for ( auto& plot : plots ) plot->Write();
   if( NamedParameter<bool>("plots_2d",true) == true ){
     auto proj = eventType.defaultProjections(nBins);
-    INFO("Making 2D projections...");
     for( size_t i = 0 ; i < proj.size(); ++i ){
-      for( size_t j = i+1 ; j < proj.size(); ++j ){
-      
-        accepted.makeProjection( Projection2D(proj[i],proj[j] ) )->Write(); 
+      for( size_t j = i+1 ; j < proj.size(); ++j ){ 
+        accepted.makeProjection( Projection2D(proj[i], proj[j]), LineColor(kBlack) )->Write(); 
       }
     }
   } 
-  
   INFO( "Writing output file " );
 
   f->Close();

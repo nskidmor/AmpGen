@@ -40,29 +40,24 @@ double IncoherentSum::norm( const Bilinears& norms ) const
 void IncoherentSum::prepare()
 {
   if ( m_weightParam != nullptr ) m_weight = m_weightParam->mean();
-
   if ( m_isConstant && m_prepareCalls != 0 ) return;
-
   transferParameters();
   for ( auto& mE : m_matrixElements ) {
-    auto& pdf = mE.pdf;
-    pdf.prepare();
-    if ( m_prepareCalls != 0 && !pdf.hasExternalsChanged() ) continue;
-
+    auto& amp = mE.amp;
+    amp.prepare();
+    if ( m_prepareCalls != 0 && !amp.hasExternalsChanged() ) continue;
     if ( m_prepareCalls == 0 && m_events != nullptr )
-      mE.addressData = m_events->registerExpression( pdf );
-
-    if ( m_events != nullptr ) m_events->updateCache( pdf, mE.addressData ); 
+      mE.addressData = m_events->registerExpression( amp );
+    if ( m_events != nullptr ) m_events->updateCache( amp, mE.addressData ); 
     if ( m_prepareCalls == 0 && m_integrator.isReady() ){
-      m_integrator.prepareExpression( pdf );
+      m_integrator.prepareExpression( amp );
     }
     INFO( mE.addressData << " " << m_events->at(0).getCache(mE.addressData) );
-    pdf.resetExternals();
+    amp.resetExternals();
   }
   if( m_prepareCalls == 0 ){
     for( size_t i = 0 ; i < m_matrixElements.size(); ++i ){
-      auto& mE = m_matrixElements[i];
-      auto index = m_integrator.events().getCacheIndex( mE.pdf );
+      auto index = m_integrator.events().getCacheIndex( m_matrixElements[i].amp );
       m_integrator.queueIntegral( index, index, i, 0, &m_normalisations, false);
     }
     m_integrator.flush();
@@ -83,17 +78,17 @@ std::vector<FitFraction> IncoherentSum::fitFractions( const LinearErrorPropagato
   for ( auto& p : outputFractions ) INFO(p);
   return outputFractions;
 }
-double IncoherentSum::getVal( const Event& evt ) const
-{
+
+double IncoherentSum::prob( const Event& evt ) const 
+{ 
+  return m_weight * prob_unnormalised(evt) / m_norm; 
+}
+
+double IncoherentSum::prob_unnormalised( const Event& evt ) const 
+{ 
   double value( 0. );
   for ( auto& mE : m_matrixElements ) {
     value += std::norm( mE.coefficient * evt.getCache( mE.addressData ) );
   }
   return value;
 }
-double IncoherentSum::operator()( const Event& evt ) const { return prob( evt ); }
-double IncoherentSum::prob( const Event& evt ) const
-{
-  return m_weight * getVal( evt ) / m_norm;
-}
-double IncoherentSum::prob_unnormalised( const Event& evt ) const { return getVal( evt ); }

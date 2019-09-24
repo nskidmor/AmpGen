@@ -48,9 +48,11 @@ void invertParity( Event& event, const size_t& nParticles)
 void invert( MinuitParameter* param, MinuitParameterSet& mps )
 {
   const std::string name = param->name();
-  size_t pos=0;
-  std::string new_name = name; 
-  int sgn=1;
+  size_t pos             = 0;
+  std::string new_name   = name; 
+  int         sgn        = 1;
+  std::string cartOrPolar = NamedParameter<std::string>("CouplingConstant::Coordinates" ,"cartesian");
+
   if( name.find("::") != std::string::npos ){
     pos = name.find("::");
     auto props = AmpGen::ParticlePropertiesList::get( name.substr(0,pos), true );
@@ -62,7 +64,8 @@ void invert( MinuitParameter* param, MinuitParameterSet& mps )
     std::string name   = tokens[0];
     if ( reOrIm == "Re" || reOrIm == "Im" ){
       Particle test = Particle(name).conj();
-      sgn = reOrIm == "Re" ? test.quasiCP() : 1; 
+      if( cartOrPolar == "polar" )     sgn = reOrIm == "Re" ? test.quasiCP() : 1; 
+      if( cartOrPolar == "cartesian" ) sgn = test.quasiCP();
       new_name = test.uniqueString() +"_"+reOrIm;
     }
     else if( tokens.size() == 2 ) {
@@ -84,7 +87,7 @@ template <class MatrixElements> void print( const Event& event, const MatrixElem
       for ( auto& term : terms ) {
         INFO( "--> " << term.first->name() << " = (" << term.first->mean() * cos( term.second->mean() ) << " + i " << term.first->mean() * sin( term.second->mean() ) << ")" );
       }
-      mE.pdf.debug( event );
+      mE.amp.debug( event.address() );
     }
   }
 }
@@ -110,7 +113,8 @@ int main( int argc, char** argv )
   int seed = NamedParameter<int>( "Seed", 156 );
   TRandom3* rndm = new TRandom3( seed );
 
-  EventType eventType( NamedParameter<std::string>( "EventType" ).getVector() );
+  EventType eventType( NamedParameter<std::string>( "EventType" , "", "EventType to generate, in the format: \033[3m parent daughter1 daughter2 ... \033[0m" ).getVector(),
+                       NamedParameter<bool>( "GenerateTimeDependent", false , "Flag to include possible time dependence of the amplitude") );
 
   bool verbose = NamedParameter<bool>("CoherentSum::Debug", 0 ) || 
                  NamedParameter<bool>("PolarisedSum::Debug", 0 );

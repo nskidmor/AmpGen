@@ -121,7 +121,6 @@ namespace AmpGen
     void print(const bool& eval = false) const;
 
     const std::vector<size_t>& uniqueElements() const { return m_uniqueElements; }
-
     void operator+=( const Tensor& rhs );
     void operator-=( const Tensor& rhs );
     Tensor conjugate() const;
@@ -133,7 +132,7 @@ namespace AmpGen
     static std::vector<size_t> dim( const ARGS&... args ){
       std::vector<size_t> rt; 
       auto up = std::tuple<ARGS...>(args...);
-      for_each(up, [&rt]( auto& f ) { rt.emplace_back(f); } );
+      for_each(up, [&rt]( const size_t& f ) { rt.emplace_back(f); } );
       return rt;
     }
   private:
@@ -179,27 +178,27 @@ namespace AmpGen
       Tensor m_tensor; 
   };
 
-  Tensor operator+( const Tensor& t1, const Tensor& t2 );
-  Tensor operator-( const Tensor& t1, const Tensor& t2 );
-  Tensor operator/( const Tensor& t1, const Expression& t2 );
-  Tensor operator*( const Expression& t1, const Tensor& t2 );
-  Tensor operator*( const Tensor& t1, const Expression& t2 );
+  Tensor operator+(const Tensor&, const Tensor&);
+  Tensor operator-(const Tensor&, const Tensor&);
+  Tensor operator/(const Tensor&, const Expression&);
+  Tensor operator*(const Expression&, const Tensor&);
+  Tensor operator*(const Tensor&, const Expression&);
 
-  Tensor operator/( const Tensor& t1, const double& t2 );
-  Tensor operator*( const double& t1, const Tensor& t2 );
-  Tensor operator*( const Tensor& t1, const double& t2 );
+  Tensor operator/(const Tensor&, const double&);
+  Tensor operator*(const double&, const Tensor&);
+  Tensor operator*(const Tensor&, const double&);
 
-  TensorProxy operator*( const TensorProxy& t1, const TensorProxy& t2 );
-  TensorProxy operator+( const TensorProxy& t1, const TensorProxy& t2 );
-  TensorProxy operator-( const TensorProxy& t1, const TensorProxy& t2 );
+  TensorProxy operator*(const TensorProxy&, const TensorProxy&);
+  TensorProxy operator+(const TensorProxy&, const TensorProxy&);
+  TensorProxy operator-(const TensorProxy&, const TensorProxy&);
 
-  TensorProxy operator/( const TensorProxy& t1, const Expression& t2 );
-  TensorProxy operator*( const Expression& t1, const TensorProxy& t2 );
-  TensorProxy operator*( const TensorProxy& t1, const Expression& t2 );
+  TensorProxy operator/(const TensorProxy&, const Expression& );
+  TensorProxy operator*(const Expression& , const TensorProxy&);
+  TensorProxy operator*(const TensorProxy&, const Expression& );
 
-  TensorProxy operator/( const TensorProxy& t1, const double& t2 );
-  TensorProxy operator*( const double& t1, const TensorProxy& t2 );
-  TensorProxy operator*( const TensorProxy& t1, const double& t2 );
+  TensorProxy operator/(const TensorProxy&, const double&);
+  TensorProxy operator*(const double&     , const TensorProxy&);
+  TensorProxy operator*(const TensorProxy&, const double&);
 
   Tensor Identity( const size_t& rank = 4 );
   

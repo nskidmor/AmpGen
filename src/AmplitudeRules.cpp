@@ -34,7 +34,6 @@ AmplitudeRule::AmplitudeRule(MinuitParameter* re, MinuitParameter* im ) :
   m_particle = Particle(m_name);
 }
 
-
 AmplitudeRules::AmplitudeRules( const MinuitParameterSet& mps )
 {
   for ( auto& it_re : mps ) {
@@ -88,19 +87,23 @@ EventType AmplitudeRule::eventType() const
   return EventType( particleNames );
 }
 
+namespace AmpGen 
+{
+  make_enum(coordinateType, cartesian, polar)
+  make_enum(angType, deg, rad)
+}
+
 CouplingConstant::CouplingConstant(const AmplitudeRule& pA)
 {
   couplings.emplace_back(pA.m_re,pA.m_im);  
-  std::string cartOrPolar = NamedParameter<std::string>("CouplingConstant::Coordinates" ,"cartesian");
-  std::string degOrRad    = NamedParameter<std::string>("CouplingConstant::AngularUnits","rad");
-  if( cartOrPolar == "polar" ){
-    isCartesian = false; 
-  }
-  else if ( cartOrPolar != "cartesian" ){
+  coordinateType coord = NamedParameter<coordinateType>("CouplingConstant::Coordinates", coordinateType::cartesian);
+  angType degOrRad     = NamedParameter<angType>("CouplingConstant::AngularUnits", angType::rad);
+  if( coord == coordinateType::polar ) isCartesian = false; 
+  else if ( coord != coordinateType::cartesian){
     FATAL("Coordinates for coupling constants must be either cartesian or polar");
   } 
-  if ( degOrRad == "deg") sf = M_PI / 180; 
-  else if ( degOrRad != "rad"){
+  if ( degOrRad == angType::deg) sf = M_PI / 180; 
+  else if ( degOrRad != angType::rad){
     FATAL("CouplingConstant::AngularUnits must be either rad or deg");
   } 
 }
@@ -109,7 +112,7 @@ std::complex<double> CouplingConstant::operator()() const
 {
   return isCartesian ?  
     std::accumulate( couplings.begin(), couplings.end(), complex_t(1,0), 
-        [this](auto& prod, auto& coupling){ return prod * complex_t( coupling.first->mean(), coupling.second->mean() ) ; } )
+        [](auto& prod, auto& coupling){ return prod * complex_t( coupling.first->mean(), coupling.second->mean() ) ; } )
    : std::accumulate( couplings.begin(), couplings.end(), complex_t(1,0), 
         [this](auto& prod, auto& coupling){ return prod * coupling.first->mean() * exp( 1i* this->sf * coupling.second->mean() ) ; } );
 }
@@ -185,7 +188,7 @@ std::vector<std::pair<Particle, CouplingConstant>> AmplitudeRules::getMatchingRu
 bool CouplingConstant::isFixed() const
 {
   return std::all_of( couplings.begin(), couplings.end(), 
-      [](auto& c){ return c.first->iFixInit() != 0 && c.second->iFixInit() != 0 ; } );
+      [](auto& c){ return c.first->isFixed() && c.second->isFixed() ; } );
 }
 
 bool CouplingConstant::contains( const std::string& label ) const 

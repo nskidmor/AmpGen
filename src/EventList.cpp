@@ -124,6 +124,7 @@ TTree* EventList::tree( const std::string& name, const std::vector<std::string>&
   double genPdf = 1;
   double weight = 1;
   auto format = m_eventType.getEventFormat( true );
+  
   for ( auto& f : format ){
     outputTree->Branch( f.first.c_str(), tmp.address( f.second ) );
   }
@@ -152,7 +153,7 @@ std::vector<TH1D*> EventList::makeProjections( const std::vector<Projection>& pr
   return plots;
 }
 
-TH1D* EventList::makeProjection( const Projection& projection, const ArgumentPack& args )
+TH1D* EventList::makeProjection( const Projection& projection, const ArgumentPack& args ) const 
 {
   auto selection      = args.getArg<Selection>().val;
   auto weightFunction = args.getArg<WeightFunction>().val;
@@ -169,7 +170,7 @@ TH1D* EventList::makeProjection( const Projection& projection, const ArgumentPac
   return plot;
 }
 
-TH2D* EventList::makeProjection( const Projection2D& projection, const ArgumentPack& args )
+TH2D* EventList::makeProjection( const Projection2D& projection, const ArgumentPack& args ) const
 {
   auto selection      = args.getArg<Selection>().val;
   auto weightFunction = args.getArg<WeightFunction>().val;
@@ -246,9 +247,25 @@ double EventList::norm()
   return m_norm;
 }
 
+void EventList::clear() 
+{ 
+  m_data.clear(); 
+}
 
-void EventList::clear() { m_data.clear(); }
-void EventList::erase( const std::vector<Event>::iterator& begin, const std::vector<Event>::iterator& end )
+void EventList::erase(const std::vector<Event>::iterator& begin, 
+                      const std::vector<Event>::iterator& end)
 {
   m_data.erase( begin, end );
 }
+
+void EventList::reserveCache(const size_t& size)
+{ 
+  if ( size >= at(0).cacheSize() )
+    for (auto& evt : *this) evt.resizeCache(evt.cacheSize() + size);
+}
+
+void EventList::resizeCache(const size_t& newCacheSize )
+{
+  for (auto& evt : *this) evt.resizeCache( newCacheSize );
+}
+

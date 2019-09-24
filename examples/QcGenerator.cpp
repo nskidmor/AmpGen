@@ -12,14 +12,41 @@
 #include <TRandom3.h>
 #include <TRandom.h>
 #ifdef _OPENMP
-  #include <omp.h>
-  #include <thread>
+#include <omp.h>
+#include <thread>
 #endif
 
 using namespace AmpGen;
 using namespace std::complex_literals;
 
-struct DTEvent {
+class FixedLibPdf 
+{
+  public: 
+    FixedLibPdf() = default; 
+    FixedLibPdf(const EventType& type, MinuitParameterSet& mps) : 
+      FixedLibPdf(NamedParameter<std::string>(type.decayDescriptor()+"::lib").getVal()) 
+    {
+      INFO("Constructing: " << type << " flib = " <<type.decayDescriptor()+"::lib" );
+    }
+    FixedLibPdf(const std::string& lib)
+    {
+      void* handle = dlopen( lib.c_str(), RTLD_NOW );
+      if ( handle == nullptr ) ERROR( dlerror() );
+      INFO("Constructing from " << lib );
+      amp = AmpGen::DynamicFCN<complex_t( const double*, const int& )>( handle, "AMP" );
+    }
+    void prepare(){};
+    void setEvents( AmpGen::EventList& evts ){};
+    double prob_unnormalised( const AmpGen::Event& evt ) const { return std::norm(getValNoCache(evt)); }
+    complex_t getValNoCache( const AmpGen::Event& evt ) const { return amp(evt,+1); }
+    size_t size() { return 0; }
+    void reset( const bool& flag = false ){};
+  private:
+    AmpGen::DynamicFCN<complex_t( const double*, const int& )> amp;
+};
+
+struct DTEvent 
+{
   AmpGen::Event signal;
   AmpGen::Event    tag;
   double prob;
@@ -32,7 +59,8 @@ struct DTEvent {
   }
 };
 
-struct DTEventList : public std::vector<DTEvent> {
+struct DTEventList : public std::vector<DTEvent> 
+{
   AmpGen::EventType m_sigType; 
   AmpGen::EventType m_tagType;
   DTEventList( const AmpGen::EventType& signal, const AmpGen::EventType& tag ) : m_sigType(signal), m_tagType(tag) {}
@@ -62,7 +90,7 @@ void add_CP_conjugate( MinuitParameterSet& mps );
 template <class PDF> struct normalised_pdf {
   PDF       pdf; 
   complex_t norm;
-  normalised_pdf(){};
+  normalised_pdf() = default; 
   normalised_pdf(const EventType& type, MinuitParameterSet& mps, const DTYieldCalculator& yc) : pdf(type, mps)
   {
     ProfileClock pc; 
@@ -76,20 +104,22 @@ template <class PDF> struct normalised_pdf {
     norm = sqrt(yc.bf(type)/n);
     if( it != nullptr ) norm *= exp( 1i * it->mean() * M_PI/180. );
     pc.stop();
-    INFO("Time to construct: " << pc << "[ms], norm = " << norm );
+    INFO(type << " Time to construct: " << pc << "[ms], norm = " << norm  << " " << typeof<PDF>() );
   }
   complex_t operator()(const Event& event){ return norm * pdf.getValNoCache(event); }
 };
 
 struct ModelStore {
-  MinuitParameterSet* mps;
-  DTYieldCalculator   yieldCalculator;
+  MinuitParameterSet*                                 mps;
+  DTYieldCalculator                                   yieldCalculator;
   std::map<std::string, normalised_pdf<CoherentSum>>  genericModels;
+  std::map<std::string, normalised_pdf<FixedLibPdf>>  flibModels;
   ModelStore(MinuitParameterSet* mps, const DTYieldCalculator& yc) : mps(mps), yieldCalculator(yc) {}
   template <class T> normalised_pdf<T>& get(const EventType& type, std::map<std::string, normalised_pdf<T>>& container)
   {
     auto key = type.decayDescriptor();
-    if( container.count(key) == 0 ) container[key] = normalised_pdf<T>(type,*mps, yieldCalculator);
+    if( container.count(key) == 0 ) 
+      container[key] = normalised_pdf<T>(type, *mps, yieldCalculator);
     return container[key]; 
   }
   template <class T>    normalised_pdf<T>& find(const EventType& type);
@@ -107,6 +137,7 @@ template <class T1, class T2> class Psi3770 {
     PhaseSpace          m_tagPhsp;
     PhaseSpace          m_headPhsp;
     bool                m_printed     = {false};
+    bool                m_ignoreQc    = {NamedParameter<bool>("IgnoreQC",false)};
     size_t              m_blockSize   = {1000000}; 
   public:
     template <class T> std::tuple<double,double,double> 
@@ -114,7 +145,7 @@ template <class T1, class T2> class Psi3770 {
       {
         double n1(0), n2(0), zR(0), zI(0);
         auto normEvents = Generator<PhaseSpace>(type).generate(m_blockSize);
-        #pragma omp parallel for reduction(+:zR,zI,n1,n2)
+#pragma omp parallel for reduction(+:zR,zI,n1,n2)
         for(size_t i = 0; i < m_blockSize; ++i){
           auto p1 = t1(normEvents[i]);
           auto p2 = t2(normEvents[i]);
@@ -147,16 +178,18 @@ template <class T1, class T2> class Psi3770 {
         INFO( "Signal: R = " << round(std::get<0>(z1),5) << "; δ = " << round(std::get<1>(z1),3) << "° ; r = " << round(std::get<2>(z1),5) );
         INFO( "Tag   : R = " << round(std::get<0>(z2),5) << "; δ = " << round(std::get<1>(z2),3) << "° ; r = " << round(std::get<2>(z2),5) );
       }
-    complex_t operator()( const DTEvent& event )                const { return operator()( event.signal, event.tag ); }
-    complex_t operator()( const Event& signal, const Event& tag) const { return m_signal(signal)*m_tagBar(tag) - m_signalBar(signal) * m_tag(tag); }
-    double P(const DTEvent& event)                              const { return std::norm(operator()(event)); }
+    complex_t operator()(const DTEvent& event )                 const { return operator()( event.signal, event.tag ); }
+    complex_t operator()(const Event& signal, const Event& tag) const { return m_signal(signal)*m_tagBar(tag) - m_signalBar(signal) * m_tag(tag); }
+    double P(const DTEvent& event)                              const { return m_ignoreQc ? prob_noQC(event) : std::norm(operator()(event)); }
     double prob_noQC (const DTEvent& event)                     const { return std::norm(m_signal(event.signal)*m_tagBar(event.tag)) + std::norm(m_signalBar(event.signal)*m_tag(event.tag)); } 
     DTEvent generatePhaseSpace()                                      { return DTEvent( m_signalPhsp.makeEvent(), m_tagPhsp.makeEvent() ); }
     DTEventList generate( const size_t& N )
     {
       DTEventList output( m_signalType, m_tagType );
-      double norm = -1;
-      ProfileClock pc; 
+      ProgressBar pb(60, trimmedString(__PRETTY_FUNCTION__));
+      auto tStartTotal = std::chrono::high_resolution_clock::now();
+      int currentSize  = 0;
+      double norm      = -1;
       while( output.size() < N ){
         auto events = generatePHSP(m_blockSize);
         if(norm == -1 ){
@@ -164,37 +197,41 @@ template <class T1, class T2> class Psi3770 {
           norm *= 1.5;
           INFO("Calculated normalisation of PDF = " << norm );
         }
-        int currentSize = output.size();
         for( auto& event : events ){
           if( event.prob > norm * gRandom->Uniform() ) output.push_back( event ); 
           if( output.size() >= N ) break ; 
         }
-        INFO( "size = " << output.size() << " / " << N << " efficiency = " << 100 * double(output.size()-currentSize)/double(m_blockSize) );
+        double efficiency = 100 * double(output.size() - currentSize )/double(m_blockSize);
+        double time = std::chrono::duration<double, std::milli>( std::chrono::high_resolution_clock::now() - tStartTotal ).count();
+        pb.print( double(output.size()) / double(N), " ε[gen] = " + mysprintf("%.2f",efficiency) + "% , " + std::to_string(int(time/1000.))  + " seconds" );
+        currentSize = output.size();
       }
       auto psi_q = PhaseSpace(m_headPhsp); 
       auto beta  = [](const Event& event, const size_t&j){ return sqrt( event[4*j+0]*event[4*j+0] + event[4*j+1]*event[4*j+1] + event[4*j+2]*event[4*j+2] )/event[4*j+3] ; };
-      auto p     = [](const Event& event, const size_t&j){ return std::make_tuple( event[4*j+0], event[4*j+1], event[4*j+2] ) ; };
+      auto p     = [](const Event& event, const size_t&j){ return std::make_tuple(event[4*j+0], event[4*j+1], event[4*j+2]); };
       for( auto& event : output ){
         auto psi_event = psi_q.makeEvent();
         boost( event.signal, p(psi_event,0), beta(psi_event,0));
         boost( event.tag   , p(psi_event,1), beta(psi_event,1));
       }
-      pc.stop();
-      INFO("Requested: " << N << " events t=" << pc << "[ms]");
+      double time = std::chrono::duration<double, std::milli>( std::chrono::high_resolution_clock::now() - tStartTotal ).count();
+      pb.finish();
+      INFO("Requested: " << N << " events t=" << time/1000 << "[ms]");
       return output;
     }
     DTEventList generatePHSP(const size_t& N, const bool& eval=true){
       DTEventList output( m_signalType, m_tagType );
       for(size_t x = 0 ; x < m_blockSize; ++x) output.emplace_back( generatePhaseSpace() ); 
-      #pragma omp parallel for
+#pragma omp parallel for
       for(size_t i = 0 ; i < m_blockSize; ++i ) output[i].prob = P(output[i]);
       return output;
     }
     double rho() {
+      if( m_ignoreQc ) return 1;
       double withQC=0;
       double withoutQC =0;
       DTEventList evts = generatePHSP(m_blockSize, false); 
-      #pragma omp parallel for reduction(+:withQC,withoutQC)
+#pragma omp parallel for reduction(+:withQC,withoutQC)
       for( size_t x = 0; x<m_blockSize; ++x ){
         auto event   = evts[x]; 
         withQC    += P(event);
@@ -210,23 +247,23 @@ int main( int argc, char** argv )
   auto time_wall = std::chrono::high_resolution_clock::now();
   auto time      = std::clock();
   size_t hwt = std::thread::hardware_concurrency();
-  size_t nThreads     = NamedParameter<size_t>("nCores"        , hwt          , "Number of threads to use");
-  double luminosity   = NamedParameter<double>("Luminosity"    , 818.3        , "Luminosity to generate. Defaults to CLEO-c integrated luminosity.");
-  size_t nEvents      = NamedParameter<size_t>("nEvents"       , 0            , "Can also generate a fixed number of events per tag, if unspecified use the CLEO-c integrated luminosity.");
-  size_t seed         = NamedParameter<size_t>("Seed"          , 0            , "Random seed to use.");
-  bool   poissonYield = NamedParameter<bool>("PoissonYield"    , true         , "Flag to include Poisson fluctuations in expected yields (only if nEvents is not specified)");
-  double crossSection = NamedParameter<double>("CrossSection"  ,  3.26 * 1000 , "Cross section for e⁺e⁻ → Ψ(3770) → DD'");
-  std::string output  = NamedParameter<std::string>("Output"   , "ToyMC.root" , "File containing output events"); 
+  size_t nThreads     = NamedParameter<size_t>("nCores"      , hwt         , "Number of threads to use");
+  double luminosity   = NamedParameter<double>("Luminosity"  , 818.3       , "Luminosity to generate. Defaults to CLEO-c integrated luminosity.");
+  size_t nEvents      = NamedParameter<size_t>("nEvents"     , 0           , "Can also generate a fixed number of events per tag, if unspecified use the CLEO-c integrated luminosity.");
+  size_t seed         = NamedParameter<size_t>("Seed"        , 0           , "Random seed to use.");
+  bool   poissonYield = NamedParameter<bool  >("PoissonYield", true        , "Flag to include Poisson fluctuations in expected yields (only if nEvents is not specified)");
+  double crossSection = NamedParameter<double>("CrossSection", 3.26 * 1000 , "Cross section for e⁺e⁻ → Ψ(3770) → DD'");
+  std::string output  = NamedParameter<std::string>("Output" , "ToyMC.root", "File containing output events"); 
   auto pNames = NamedParameter<std::string>("EventType" , ""    
-              , "EventType to generate, in the format: \033[3m parent daughter1 daughter2 ... \033[0m" ).getVector(); 
+      , "EventType to generate, in the format: \033[3m parent daughter1 daughter2 ... \033[0m" ).getVector(); 
   auto tags           = NamedParameter<std::string>("TagTypes" , std::string(), "Vector of opposite side tags to generate, in the format \033[3m outputTreeName decayDescriptor \033[0m.").getVector();
-  
+
   gRandom = new TRandom3(seed);
-  #ifdef _OPENMP
+#ifdef _OPENMP
   omp_set_num_threads( nThreads );
   INFO("Setting " << nThreads << " fixed threads for OpenMP");
   omp_set_dynamic(0);  
-  #endif
+#endif
   MinuitParameterSet MPS; 
   MPS.loadFromStream();
   add_CP_conjugate( MPS );
@@ -239,15 +276,28 @@ int main( int argc, char** argv )
   ModelStore models(&MPS, yc); 
   for( auto& tag : tags ){
     auto tokens       = split(tag, ' ');
-    EventType    type = Particle(tokens[1], {}, false).eventType();
+    auto tagParticle  = Particle(tokens[1], {}, false);
+    EventType    type = tagParticle.eventType();
     double yield_noQC = yc(luminosity,signalType,type,true);
-    auto generator    = Psi3770<CoherentSum,CoherentSum>(models, signalType, type) ; 
-    double rho        = generator.rho();
-    double yield = nEvents; 
-    if( nEvents == 0 && poissonYield  )  yield = gRandom->Poisson(yield_noQC*rho); 
-    if( nEvents == 0 && !poissonYield ) yield = yield_noQC*rho;  
-    INFO( "Tag = " << type << " Expected Yield [incoherent] = " << yield_noQC << " rho = " << rho << " requested = " << yield );
-    generator.generate(yield).tree(tokens[0])->Write();
+    std::string flib         = NamedParameter<std::string>( type.decayDescriptor() +"::lib", "");
+    if( flib == "" ){
+      auto generator    = Psi3770<CoherentSum,CoherentSum>(models, signalType, type); 
+      double rho        = generator.rho();
+      double yield = nEvents; 
+      if( nEvents == 0 && poissonYield  ) yield = gRandom->Poisson(yield_noQC*rho);
+      if( nEvents == 0 && !poissonYield ) yield = yield_noQC*rho;
+      INFO( "Tag = " << type << " Expected Yield [incoherent] = " << yield_noQC << " rho = " << rho << " requested = " << yield );
+      generator.generate(yield).tree(tokens[0])->Write();
+    }
+    else {
+      auto generator    = Psi3770<CoherentSum,FixedLibPdf>(models, signalType, type); 
+      double rho        = generator.rho();
+      double yield = nEvents; 
+      if( nEvents == 0 && poissonYield  ) yield = gRandom->Poisson(yield_noQC*rho); 
+      if( nEvents == 0 && !poissonYield ) yield = yield_noQC*rho;  
+      INFO( "Tag = " << type << " Expected Yield [incoherent] = " << yield_noQC << " rho = " << rho << " requested = " << yield );
+      generator.generate(yield).tree(tokens[0])->Write();
+    }
   }
   f->Close(); 
   auto twall_end  = std::chrono::high_resolution_clock::now();
@@ -256,7 +306,6 @@ int main( int argc, char** argv )
   INFO( "Wall time = " << tWall / 1000. );
   INFO( "CPU  time = " << time_cpu );
 }
-
 
 void add_CP_conjugate( MinuitParameterSet& mps )
 {
@@ -286,7 +335,7 @@ void add_CP_conjugate( MinuitParameterSet& mps )
       }
     }
     if( mps.find( new_name ) == nullptr ){
-      tmp.push_back( new MinuitParameter(new_name, MinuitParameter::Flag::Float, sgn * param->mean(), param->err(), 0, 0));
+      tmp.push_back( new MinuitParameter(new_name, Flag::Free, sgn * param->mean(), param->err(), 0, 0));
     }
   }
   for( auto& p : tmp ) mps.add( p );
@@ -313,7 +362,7 @@ double DTYieldCalculator::operator()(const double& lumi,
   if( t_signal == t_tag || t_signal == t_tag.conj(false,true) ) statisticalFactor = 1;
   auto signal       = AmpGen::Particle(t_signal.decayDescriptor()).uniqueString(); 
   auto tag          = AmpGen::Particle(t_tag.decayDescriptor()).uniqueString();
-  auto signalBar    = AmpGen::replaceAll( signal, "D0","Dbar0");
+  auto signalBar    = AmpGen::replaceAll( signal, "D0", "Dbar0");
   auto tagBar       = AmpGen::replaceAll( tag,    "D0", "Dbar0");
   auto eff          = [this](const std::string& tag) -> double { auto it = efficiencies.find(tag); 
     if( it == efficiencies.end() ){
@@ -352,6 +401,7 @@ std::string DTEventList::particleName(const AmpGen::EventType& type, const size_
   if( count.second == 1 ) return programatic_name(type[j]);
   return programatic_name(type[j])+std::to_string(count.first);
 }
+
 TTree* DTEventList::tree(const std::string& name)
 {
   DTEvent tmp(at(0).signal, at(0).tag);
@@ -361,15 +411,17 @@ TTree* DTEventList::tree(const std::string& name)
     ids_tag(m_tagType.size());
 
   TTree* outputTree = new TTree(name.c_str(),name.c_str());
-  for(size_t i = 0 ; i < m_sigType.size(); ++i ){
+  for(size_t i = 0 ; i < m_sigType.size(); ++i )
+  {
     outputTree->Branch((particleName(m_sigType, i)+"_PX").c_str(), &tmp.signal[4*i+0]); 
     outputTree->Branch((particleName(m_sigType, i)+"_PY").c_str(), &tmp.signal[4*i+1]); 
     outputTree->Branch((particleName(m_sigType, i)+"_PZ").c_str(), &tmp.signal[4*i+2]); 
     outputTree->Branch((particleName(m_sigType, i)+"_E").c_str(),  &tmp.signal[4*i+3]);
     outputTree->Branch((particleName(m_sigType, i)+"_ID").c_str(), &id_sig[i]);
     ids_sig[i] = ParticlePropertiesList::get( m_sigType[i] )->pdgID();
-  }
-  for(size_t i = 0 ; i < m_tagType.size(); ++i ){
+  }  
+  for(size_t i = 0 ; i < m_tagType.size(); ++i )
+  {
     outputTree->Branch(("Tag_"+particleName(m_tagType, i)+"_PX").c_str(), &tmp.tag[4*i+0]); 
     outputTree->Branch(("Tag_"+particleName(m_tagType, i)+"_PY").c_str(), &tmp.tag[4*i+1]); 
     outputTree->Branch(("Tag_"+particleName(m_tagType, i)+"_PZ").c_str(), &tmp.tag[4*i+2]); 
@@ -379,11 +431,11 @@ TTree* DTEventList::tree(const std::string& name)
   }
   for( auto& evt: *this ){
     bool swap = gRandom->Uniform() > 0.5;
-    tmp.set( evt.signal, evt.tag );
+    tmp.set(evt.signal, evt.tag);
     if( swap ) tmp.invertParity();
-    for(size_t i=0;i< m_sigType.size(); ++i) 
+    for(size_t i=0; i != m_sigType.size(); ++i)
       id_sig[i] = swap ? -ids_sig[i] : ids_sig[i];
-    for(size_t i=0;i< m_tagType.size(); ++i) 
+    for(size_t i=0; i != m_tagType.size(); ++i)
       id_tag[i] = swap ? -ids_tag[i] : ids_tag[i];
     outputTree->Fill();
   }
@@ -391,4 +443,5 @@ TTree* DTEventList::tree(const std::string& name)
 }    
 
 template <> normalised_pdf<CoherentSum>& ModelStore::find(const EventType& type){ return get<CoherentSum>(type, genericModels); }
+template <> normalised_pdf<FixedLibPdf>& ModelStore::find(const EventType& type){ return get<FixedLibPdf>(type, flibModels); }
 

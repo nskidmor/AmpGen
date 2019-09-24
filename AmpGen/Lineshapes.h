@@ -10,6 +10,8 @@
 #include "AmpGen/Factory.h"
 #include "AmpGen/MsgService.h"
 #include "AmpGen/Tensor.h"
+#include "AmpGen/Particle.h"
+
 /**
   @defgroup Lineshapes Lineshapes
   @brief Lineshapes are semi-empirical complex functions for describing the propagation and decay of short-lived resonances. 
@@ -47,38 +49,37 @@
                                    const AmpGen::Expression& s2, const std::string& particleName,               \
                                    const unsigned int& L, const std::string& lineshapeModifier,                 \
                                    AmpGen::DebugSymbols* dbexpressions = 0) const override;                     \
-    AmpGen::Expression get(const AmpGen::Expression& s, const std::vector<AmpGen::Tensor>& p,                   \
-                           const std::string& particleName,                                                     \
-                           const unsigned int& L, const std::string& lineshapeModifier,                         \
+    AmpGen::Expression get(const AmpGen::Particle& p,                                                           \
+                           const std::string& lineshapeModifier,                                                \
                            AmpGen::DebugSymbols* dbexpressions = nullptr ) const override;                      \
   }
 
 #define DEFINE_LINESHAPE( X )                                                                                   \
-  REGISTER_WITH_KEY( Lineshape::Base, Lineshape::X, #X, std::string );                                               \
-  AmpGen::Expression Lineshape::X::get( const AmpGen::Expression& s, const std::vector<AmpGen::Tensor>& p,      \
-                                        const std::string& particleName,                                        \
-                                        const unsigned int& L, const std::string& lineshapeModifier,            \
+  REGISTER_WITH_KEY( Lineshape::Base, Lineshape::X, #X, std::string );                                          \
+  AmpGen::Expression Lineshape::X::get( const AmpGen::Particle& p,                                              \
+                                        const std::string& lineshapeModifier,                                   \
                                         AmpGen::DebugSymbols* dbexpressions ) const { return                    \
-                                           get(s, dot(p[0],p[0]), dot(p[1],p[1]),                               \
-                                           particleName, L, lineshapeModifier, dbexpressions) ;}                 \
+                                           get(p.massSq(), p.daughter(0)->massSq(), p.daughter(1)->massSq(),    \
+                                           p.name(), p.orbital(), lineshapeModifier, dbexpressions) ;}                    \
   AmpGen::Expression Lineshape::X::get( const AmpGen::Expression& s, const AmpGen::Expression& s1,              \
                                         const AmpGen::Expression& s2, const std::string& particleName,          \
                                         const unsigned int& L, const std::string& lineshapeModifier,            \
                                         AmpGen::DebugSymbols* dbexpressions ) const
 
 #define DEFINE_GENERIC_SHAPE( X )                                                                               \
-  REGISTER_WITH_KEY( Lineshape::Base, Lineshape::X, #X, std::string );                                               \
+  REGISTER_WITH_KEY( Lineshape::Base, Lineshape::X, #X, std::string );                                          \
   AmpGen::Expression Lineshape::X::get( const AmpGen::Expression& s, const AmpGen::Expression& s1,              \
                                         const AmpGen::Expression& s2, const std::string& particleName,          \
                                         const unsigned int& L, const std::string& lineshapeModifier,            \
                                         AmpGen::DebugSymbols* dbexpressions ) const { return 0;}                \
-  AmpGen::Expression Lineshape::X::get( const AmpGen::Expression& s, const std::vector<AmpGen::Tensor>& p,      \
-                                        const std::string& particleName,                                        \
-                                        const unsigned int& L, const std::string& lineshapeModifier,            \
+  AmpGen::Expression Lineshape::X::get( const AmpGen::Particle& p,                                              \
+                                        const std::string& lineshapeModifier,                                   \
                                         AmpGen::DebugSymbols* dbexpressions ) const 
 
 namespace AmpGen
 {
+  class Particle; // forward definitions
+
   /** @ingroup Lineshapes namespace Lineshape 
       Namespace that contains all lineshapes, i.e. propagators for describing amplitudes and phases for resonances (and nonresonant) contributions to a total amplitude. 
    */
@@ -91,8 +92,8 @@ namespace AmpGen
       virtual Expression get( const Expression& s, const Expression& s1, const Expression& s2,
                               const std::string& particleName, const unsigned int& L,
                               const std::string& lineshapeModifier, DebugSymbols* dbexpressions = nullptr ) const = 0;
-      virtual Expression get( const Expression& s, const std::vector<AmpGen::Tensor>& p, const std::string& particleName,
-                              const unsigned int& L, const std::string& lineshapeModifier,
+      virtual Expression get( const AmpGen::Particle& p, 
+                              const std::string& lineshapeModifier,
                               AmpGen::DebugSymbols* dbexpressions = nullptr ) const = 0; 
       Base* create() { return this; }
     };
@@ -104,9 +105,8 @@ namespace AmpGen
                             const Expression& s2, const std::string& particleName, const unsigned int& L,
                             std::vector<std::pair<std::string, Expression>>* dbexpressions = nullptr );
       static Expression get(const std::string& lineshape,
-                            const Expression& s,  
-                            const std::vector<Tensor>& p, const std::string& particleName,
-                            const unsigned int& L, AmpGen::DebugSymbols* dbexpressions );
+                            const Particle& p,
+                            AmpGen::DebugSymbols* dbexpressions );
       static bool isLineshape( const std::string& lineshape );
     };
     
@@ -151,7 +151,16 @@ namespace AmpGen
          @f$\Gamma_0@f$         | <EM>particleName_</EM>width          | Breit-Wigner width, defined as the width of resonance at the Breit-Wigner mass
      */
     DECLARE_LINESHAPE( SBW );
-    /// Non-relativistic Breit-Wigner lineshape
+    
+    /** @ingroup Lineshapes class NonRelBW 
+        @brief Nonrelativistic Breit-Wigner lineshape 
+
+       Non-relativistic Breit-Wigner lineshape, given by 
+
+      @f[
+       \mathcal{A}(s) = \sqrt{ \frac{ \Gamma_0 }{ 2 \pi } } \left( \sqrt{s} - m_0 - i \Gamma_0 /2 \right)^{-1}
+      @f]
+    */  
     DECLARE_LINESHAPE( NonRelBW );
 
     /** @ingroup Lineshapes class GounarisSakurai
@@ -251,7 +260,7 @@ namespace AmpGen
         @f]
         that is, the 'resonant' and 'nonresonant' phases of the LASS formulation with additional 'proudction' phases @f$ \phi_R @f$ and @f$\phi_F @f$, and production couplings @f$R, F@f$. One of the production couplings can typically be fixed to 1, normally the resonant coupling, @f$R @f$.  
 
-        Parameter              | User name                            | Description 
+        Parameter              | Interface parameter name             | Description 
         -----------------------|--------------------------------------|------------------------------------------------------------------------
         @f$m@f$                | <EM>particleName_</EM>mass           | Breit-Wigner mass of the resonant component, defined as energy at which the self-energy of the resonance is purely imaginary (defaults to value in PDG)  <br>
         @f$\Gamma_0@f$         | <EM>particleName_</EM>width          | Breit-Wigner width of the resonant component, defined as the width of resonance at the Breit-Wigner mass <br>
@@ -303,7 +312,7 @@ namespace AmpGen
         which is potentially useful for fitting very long-lived contributions that are essentially limited by the experimental resolution, 
         rather than the natural lifetime. This type of parameterisation will assess contributions from interference incorrectly.
 
-        Parameter              | User name                            | Description 
+        Parameter              | Interface parameter name             | Description 
         -----------------------|--------------------------------------|------------------------------------------------------------------------
         @f$\mu@f$              | <EM>lineshapeModifier</EM>_mean      | Mean of the gaussian distribution.
         @f$\sigma@f$           | <EM>lineshapeModifier</EM>_sigma     | Width of the gaussian distribution. 
@@ -313,7 +322,13 @@ namespace AmpGen
     /** @ingroup Lineshapes class Poly
      *  @brief Polynominal shape \f$ \mathcal{A}(s) = \sum^n_i c_i s^{i} \f$ where the sum is to lineshapeModifier::Degree, and the free parameters of the shape are lineshapeModifier_ci 
      */
+    DECLARE_LINESHAPE( PolyNR );
+    
+    /** @ingroup Lineshapes class PolyNR
+     *  @brief Polynominal shape \f$ \mathcal{A}(s) = \sqrt{ \sum_{ij} c_{ij} s^{i} (s^\prime)^{j} } \f$ where the sum is to lineshapeModifier::Degree, and the free parameters of the shape are lineshapeModifier_cij 
+     */
     DECLARE_LINESHAPE( Poly );
+
     /** @ingroup Lineshapes class FOCUS
      *  @brief K matrix amplitudes used for I=1/2 and I=3/2 in the description of the \f$ K\pi \f$ S-wave in the analysis of @f$ D^{+}\rightarrow K^{-}\pi^{+}\pi^{+}@f$ https://arxiv.org/abs/0705.2248
      */
@@ -322,16 +337,6 @@ namespace AmpGen
     /// I=1/2 and I=3/2 K Matrices used in the description of the \f$ K\pi\f$ S-wave in the analysis of @f$\eta_{c}\rightarrow K^{+} K^{-} \pi^{0}@f$ https://arxiv.org/abs/1701.04881
     DECLARE_LINESHAPE( PALANO );
 
-    /** @ingroup Lineshapes class ObelixRho
-       @brief Amplitude to describe the vector-isovector system, otherwise known as the @f$ \rho @f$ mesons. WARNING untested. 
-
-         Vector-Isovector amplitude @f$(I=1, J=1)@f$ using a K-matrix to describe the @f$\pi\pi,  KK, \pi\pi\pi\pi @f$ channels using three poles, commonly associated with 
-     the @f$ \rho(770), \rho(1450), \rho(1900) @f$ resonances.*/
-    DECLARE_LINESHAPE( ObelixRho );
-
-    /// K matrix to describe \f$K_1(1270) / K_1(1400)\f$. WARNING incompleted. 
-    DECLARE_LINESHAPE( AxialKaon );
-    
     /** @ingroup Lineshapes class kMatrixSimple 
         @brief Simple and flexible K matrix that implements a variable number of scalar channels and poles.   
         Flexible K matrix implementation that accepts a variable number of scalar channels and pole terms.
@@ -350,7 +355,7 @@ namespace AmpGen
          @f]
          where @f$a_n@f$ is the value of the function evaluated at the @f$ n @f$ knot and the other polynomial coefficients are determined by imposing continuity and 
          differentiability. 
-         Parameter              | User name                            | Description 
+         Parameter              | Interface parameter name             | Description 
          -----------------------|--------------------------------------|------------------------------------------------------------------------
          @f$\mathcal{R}(a_j)@f$ | <EM>particleName</EM>::Spline::Re::j | The real value of the lineshape evaluated at the @f$ j @f$th knot.
          @f$\mathcal{I}(a_j)@f$ | <EM>particleName</EM>::Spline::Im::j | The imaginary value of the lineshape evaluated at the @f$ j @f$th knot.
@@ -383,6 +388,18 @@ namespace AmpGen
       */   
     DECLARE_LINESHAPE( EtaDalitz );
 
+    /** @ingroup Lineshapes class TD
+        @brief (Linear) time dependence
+        
+        ''Lineshape'' that gives a linear time-dependence for use in time-dependent generation / fitting. 
+        @f[
+          \mathcal{A}(t) = \frac{t}{2\tau},
+        @f]
+        where @f$\tau@f$ is the proper decay time. 
+
+      */
+    DECLARE_LINESHAPE( TD );
+
     DECLARE_LINESHAPE( Photon );
   } // namespace Lineshape
   
@@ -399,7 +416,7 @@ namespace AmpGen
 
   Expression pol( const AmpGen::Expression& X, const std::vector<Expression>& p );
 
-  std::vector<Expression> parameterVector( const std::string& name, const unsigned int& nParam );
+  std::vector<Expression> parameterVector(const std::string& name, const size_t& nParam);
 
   Expression width( const Expression& s, const Expression& s1, const Expression& s2, const Expression& mass,
                     const Expression& width, const Expression& radius, unsigned int L,

@@ -29,7 +29,7 @@ namespace AmpGen
 
       for ( unsigned int i = 0; i < fcn.size(); ++i ) {
         for ( unsigned int j = i; j < fcn.size(); ++j ) {
-          bid.addIntegral( fcn[i].pdf, fcn[j].pdf, [i, j, &normalisations]( const auto& val ) {
+          bid.addIntegral( fcn[i].amp, fcn[j].amp, [i, j, &normalisations]( const auto& val ) {
               for ( unsigned int bin = 0; bin < NBINS; ++bin ) {
               normalisations[bin].set( i, j, val[bin] );
               if ( i != j ) normalisations[bin].set( j, i, std::conj( val[bin] ) );
@@ -47,7 +47,7 @@ namespace AmpGen
       std::array<Bilinears, NBINS> normalisations;
       for ( unsigned int i = 0; i < NBINS; ++i ) normalisations[i] = Bilinears( fcn.size(), fcn.size() );
       for ( unsigned int i = 0; i < fcn.size(); ++i ) {
-        bid.addIntegral( fcn[i].pdf, fcn[i].pdf, [i, &normalisations]( const auto& val ) {
+        bid.addIntegral( fcn[i].amp, fcn[i].amp, [i, &normalisations]( const auto& val ) {
             for ( unsigned int bin = 0; bin < NBINS; ++bin ) normalisations[bin].set( i, 0, val[bin] );  
             } );
       }
@@ -65,11 +65,10 @@ namespace AmpGen
       TH1D* plot = projection.plot();
       plot->SetName( ( prefix + plot->GetName() ).c_str() );
       auto normalisations = getNorms<NBINS>( fcn, bid );
-
       auto vectorBinFunctor = [&normalisations, &fcn, &bid] {
         fcn.transferParameters();
         bid.update( fcn, normalisations );
-        std::array<double, NBINS> values;
+        std::vector<double> values(NBINS);
         double total = 0;
         for ( size_t bin = 0; bin < NBINS; ++bin ) {
           values[bin] = fcn.norm( normalisations[bin] );
@@ -79,7 +78,7 @@ namespace AmpGen
         return values;
       };
       auto values = vectorBinFunctor();
-      auto errors = linProp.getVectorError<NBINS>( vectorBinFunctor );
+      auto errors = linProp.getVectorError( vectorBinFunctor, NBINS );
       for ( size_t bin = 0; bin < NBINS; ++bin ) {
         plot->SetBinContent( bin + 1, values[bin] );
         plot->SetBinError( bin + 1, errors[bin] );

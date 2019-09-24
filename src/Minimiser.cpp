@@ -8,7 +8,6 @@
 #include <iomanip>
 #include <Minuit2/Minuit2Minimizer.h>
 
-
 #include "AmpGen/IExtendLikelihood.h"
 #include "AmpGen/MinuitParameter.h"
 #include "AmpGen/MinuitParameterSet.h"
@@ -24,25 +23,21 @@ using namespace ROOT;
 
 unsigned int Minimiser::nPars() const { return m_nParams; }
 
-void Minimiser::print( const double& LL )
-{
-  INFO( "Iteration # " << m_lastPrint << "  FCN = " << round( LL, 3 ) << "  Edm = " << round( m_minimiser->Edm(), 3 )
-                       << "  NCalls = " << m_minimiser->NCalls() );
-}
-
 double Minimiser::operator()( const double* xx )
 {
   for(size_t i = 0; i < m_mapping.size(); ++i ) {
     m_parSet->at( m_mapping[i] )->setCurrentFitVal( xx[i] );
   }
-  double LL = m_theFunction();
+  double LL = m_theFunction() ;
   for ( auto& extendTerm : m_extendedTerms ) {
     LL -= 2 * extendTerm->getVal();
   }
-  return LL;
+  return LL - m_ll_zero;
 }
 
-void Minimiser::GradientTest()
+double Minimiser::FCN() const { return m_theFunction(); }
+
+void Minimiser::gradientTest()
 {
   for (size_t i = 0; i < m_mapping.size(); ++i) {
     auto parameter = m_parSet->at( m_mapping[i] );
@@ -59,7 +54,6 @@ void Minimiser::GradientTest()
     parameter->setCurrentFitVal( m );
   }
 }
-double Minimiser::FCN() const { return m_theFunction(); }
 
 void Minimiser::prepare()
 {
@@ -67,6 +61,7 @@ void Minimiser::prepare()
   size_t maxCalls       = NamedParameter<size_t>( "Minimiser::MaxCalls"  , 100000);
   double tolerance      = NamedParameter<double>( "Minimiser::Tolerance" , 1);
   m_printLevel          = NamedParameter<size_t>( "Minimiser::PrintLevel", 4);
+  m_normalise           = NamedParameter<bool>(   "Minimiser::Normalise",false);
   if ( m_minimiser != nullptr ) delete m_minimiser;
   m_minimiser = new Minuit2::Minuit2Minimizer(algorithm.c_str() );
   DEBUG( "Error definition = " << m_minimiser->ErrorDef() );
@@ -79,18 +74,12 @@ void Minimiser::prepare()
   for(size_t i = 0 ; i < m_parSet->size(); ++i) 
   {
     auto par = m_parSet->at(i);
-    if ( par->iFixInit() != 0 ) continue;
+    if ( ! par->isFree() ) continue;
     m_minimiser->SetVariable(m_mapping.size(), par->name(), par->mean(), par->stepInit());
     if ( par->minInit() != 0 || par->maxInit() != 0 ) 
       m_minimiser->SetVariableLimits( m_mapping.size(), par->minInit(), par->maxInit() );
     m_mapping.push_back(i);
-    if ( m_printLevel != 0 ) {
-      INFO( "Parameter: " << std::left  << std::setw(60) << par->name() << " = " 
-                          << std::right << std::setw(12) << par->mean() << " ± " 
-                          << std::left  << std::setw(12) << par->stepInit() 
-                          << ( ( par->minInit() != 0 || par->maxInit() != 0 ) ? 
-                          ("["+ std::to_string(par->minInit()) + ", " + std::to_string(par->maxInit() ) ) + "]" : "" ) );
-    }
+    if ( m_printLevel != 0 ) INFO( *par );
   }
   m_nParams = m_mapping.size();
   m_covMatrix.resize( m_nParams * m_nParams, 0 );
@@ -98,7 +87,7 @@ void Minimiser::prepare()
 
 bool Minimiser::doFit()
 {
-  m_lastPrint = 999;
+  if( m_normalise ) m_ll_zero = m_theFunction();
   ROOT::Math::Functor f( *this, m_nParams );
   for (size_t i = 0; i < m_mapping.size(); ++i ) {
     MinuitParameter* par = m_parSet->at( m_mapping[i] );
@@ -106,7 +95,6 @@ bool Minimiser::doFit()
     if ( par->minInit() != 0 || par->maxInit() != 0 )
       m_minimiser->SetVariableLimits( i, par->minInit(), par->maxInit() );
   }
-
   m_minimiser->SetFunction( f );
   m_minimiser->Minimize();
   for (size_t i = 0; i < m_nParams; ++i ) {
@@ -116,7 +104,7 @@ bool Minimiser::doFit()
     for ( unsigned int j = 0; j < m_nParams; ++j ) {
       m_covMatrix[i + m_nParams * j] = m_minimiser->CovMatrix( i, j );
     }
-  }
+  } 
   m_status = m_minimiser->Status();
   return 1;
 }
@@ -166,4 +154,4 @@ void Minimiser::addExtendedTerm( IExtendLikelihood* m_term )
   m_extendedTerms.push_back( m_term ); 
 }
 
-ROOT::Math::Minimizer* Minimiser::minimiserInternal() { return m_minimiser; }
+ROOT::Minuit2::Minuit2Minimizer* Minimiser::minimiserInternal() { return m_minimiser; }

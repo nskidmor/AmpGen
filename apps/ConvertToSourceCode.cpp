@@ -14,6 +14,8 @@
 #include "AmpGen/Utilities.h"
 #include "AmpGen/ThreadPool.h"
 #include "AmpGen/Particle.h"
+#include "AmpGen/ParticlePropertiesList.h"
+
 #include "TRandom3.h"
 
 using namespace AmpGen;
@@ -46,8 +48,8 @@ void create_integration_tests(T& pdf,
   unit_tests << "\n}\n" << std::endl; 
  
   for( auto& mE : pdf.matrixElements() ){
-    auto value = mE.pdf(testEvents[0].address()); 
-    unit_tests << "BOOST_AUTO_TEST_CASE( " << mE.pdf.progName() + "_test){" << std::endl;
+    auto value = mE.amp(testEvents[0].address()); 
+    unit_tests << "BOOST_AUTO_TEST_CASE( " << mE.amp.progName() + "_test){" << std::endl;
     unit_tests << "  EventType type({" << stringify(type.mother()) << ", " << vectorToString( type.finalStates(), ", ", stringify )  << "});" << std::endl; 
     unit_tests << "  Particle p("<<stringify(mE.decayDescriptor()) << ", type.finalStates());" << std::endl; 
     unit_tests << "  setupOptions();" << std::endl; 
@@ -66,6 +68,37 @@ void create_integration_tests(T& pdf,
   unit_tests.close();
 }
 
+void invert( MinuitParameter* param, MinuitParameterSet& mps )
+{
+  const std::string name = param->name();
+  size_t pos             = 0;
+  std::string new_name   = name; 
+  int         sgn        = 1;
+  std::string cartOrPolar = NamedParameter<std::string>("CouplingConstant::Coordinates" ,"cartesian");
+
+  if( name.find("::") != std::string::npos ){
+    pos = name.find("::");
+    auto props = AmpGen::ParticlePropertiesList::get( name.substr(0,pos), true );
+    if( props != 0 ) new_name = props->anti().name() + name.substr(pos); 
+  }
+  else { 
+    auto tokens=split(name,'_');
+    std::string reOrIm = *tokens.rbegin();
+    std::string name   = tokens[0];
+    if ( reOrIm == "Re" || reOrIm == "Im" ){
+      Particle test = Particle(name).conj();
+      if( cartOrPolar == "polar" )     sgn = reOrIm == "Re" ? test.quasiCP() : 1; 
+      if( cartOrPolar == "cartesian" ) sgn = test.quasiCP();
+      new_name = test.uniqueString() +"_"+reOrIm;
+    }
+    else if( tokens.size() == 2 ) {
+      auto props = AmpGen::ParticlePropertiesList::get( name );
+      if( props != 0  ) new_name = props->anti().name() + "_" + tokens[1]; 
+    }
+  }
+  mps.rename( param->name(), new_name );
+  if( sgn == -1 ){ param->setInit( -1*param->mean() ) ; param->setCurrentFitVal( -1 * param->mean() );}
+}
 
 template <class T> void generate_source(T& pdf, EventList& normEvents, const std::string& sourceFile, MinuitParameterSet& mps, const double& sf)
 {
@@ -77,9 +110,7 @@ template <class T> void generate_source(T& pdf, EventList& normEvents, const std
     double pMax = 0 ;
     pdf.setEvents( normEvents );
     pdf.prepare();
-    normEvents[0].print();
-    normEvents[0].printCache();
-    INFO( pdf.prob_unnormalised( normEvents[0] ) );
+    pdf.debug( normEvents[0] );
     for ( auto& evt : normEvents ) {
       if( type == "PolarisedSum" ){ 
         double px, py, pz; 
@@ -113,6 +144,11 @@ int main( int argc, char** argv )
 
   AmpGen::MinuitParameterSet MPS; //
   MPS.loadFromStream();
+  
+  if ( NamedParameter<bool>( "conj", false ) == true ) {
+    eventType = eventType.conj(true);
+    for ( auto& param : MPS ) invert( param, MPS );
+  }
   Generator<PhaseSpace> phsp( eventType );
   TRandom3 rnd;
 

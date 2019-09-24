@@ -15,7 +15,7 @@
 #include "AmpGen/CompiledExpression.h"
 #include "AmpGen/EventList.h"
 #include "AmpGen/EventType.h"
-#include "AmpGen/Integrator.h"
+#include "AmpGen/Integrator2.h"
 #include "AmpGen/CoherentSum.h"
 #include "AmpGen/Expression.h"
 #include "AmpGen/Tensor.h"
@@ -35,27 +35,30 @@ namespace AmpGen
   class PolarisedSum
   {
     public: 
-      PolarisedSum( const EventType& eventType, AmpGen::MinuitParameterSet& mps, const std::string& prefix="" );
+      typedef Integrator<10>        integrator;
+
+      PolarisedSum() = default; 
+      PolarisedSum(const EventType&, AmpGen::MinuitParameterSet&, const std::string& = "");
       void prepare();
-      void setEvents( AmpGen::EventList& events );
-      void setMC( AmpGen::EventList& events );
-      void reset( const bool& flag = false );
-      void debug(const AmpGen::Event& event );
+      void setEvents(AmpGen::EventList&);
+      void setMC(AmpGen::EventList&);
+      void reset(const bool& = false);
+      void debug(const AmpGen::Event&);
       void debug_norm(); 
-      void setWeight( MinuitParameter* param );
+      void setWeight(MinuitParameter*);
       double getWeight() const;
-      void calculateNorms(const std::vector<bool>& hasChanged); 
-      void generateSourceCode( const std::string& fname, const double& normalisation = 1, bool add_mt = false );
+      void calculateNorms(const std::vector<bool>&); 
+      void generateSourceCode(const std::string&, const double& = 1, bool = false);
       void build_probunnormalised();
-      Expression probExpression( const Tensor& T_matrix, const std::vector<Expression>& p ) const; 
-      size_t size() const ;  
+      Expression probExpression(const Tensor&, const std::vector<Expression>&, DebugSymbols* = nullptr) const; 
+      size_t size() const;  
       real_t norm() const;
-      complex_t norm(const size_t& i, const size_t& j, Integrator<18>* integ = nullptr ); 
-      real_t operator()(const AmpGen::Event& event) const { return prob_unnormalised(event) ;}
-      real_t prob_unnormalised( const AmpGen::Event& evt ) const;
-      real_t prob(const AmpGen::Event& evt ) const ;
-      real_t getValNoCache( const AmpGen::Event& evt ) ;
-      std::vector<FitFraction> fitFractions( const LinearErrorPropagator& prop );
+      complex_t norm(const size_t&, const size_t&, integrator* = nullptr); 
+      inline real_t operator()(const AmpGen::Event& evt) const { return m_weight * prob_unnormalised(evt) / m_norm; }
+      real_t prob_unnormalised(const AmpGen::Event&) const;
+      real_t prob(const AmpGen::Event&) const;
+      real_t getValNoCache(const AmpGen::Event&) ;
+      std::vector<FitFraction> fitFractions(const LinearErrorPropagator&);
       std::vector<TransitionMatrix<std::vector<complex_t>>> matrixElements() const;
       void transferParameters(); 
       Tensor transitionMatrix();
@@ -70,18 +73,19 @@ namespace AmpGen
       double                        m_weight      = {1}; 
       std::vector<MinuitProxy>      m_pVector     = {}; 
       bool                          m_verbosity   = {0};
-      Integrator<18>                m_integrator;
+      bool                          m_debug       = {0};
+      integrator                    m_integrator;
       std::vector<Bilinears>        m_norms;
       std::vector<std::vector<int>> m_polStates; 
       EventType                     m_eventType;
       std::string                   m_prefix      = "";
-      std::vector<complex_t>        m_psi;
+      std::vector<complex_t>        m_rho;
       std::vector<size_t>           m_integIndex; 
       std::vector<TransitionMatrix<std::vector<complex_t>>>        m_matrixElements;  
       CompiledExpression<real_t, const real_t*, const complex_t*> m_probExpression; 
       AmplitudeRules                m_rules;  
-      std::vector<std::vector<int>> polarisationOuterProduct( const std::vector<std::vector<int>>& A, const std::vector<int>& B ) const;
-      std::vector<int> polarisations( const std::string& name ) const ;
+      std::vector<std::vector<int>> polarisationOuterProduct(const std::vector<std::vector<int>>&, const std::vector<int>&) const;
+      std::vector<int> polarisations(const std::string&) const ;
   };
 } // namespace AmpGen
 
