@@ -7,7 +7,7 @@
 #include "AmpGen/ProfileClock.h"
 #include "AmpGen/ParticlePropertiesList.h"
 #include "AmpGen/MinuitParameterSet.h"
-
+#include "AmpGen/AddCPConjugate.h"
 #include <TFile.h>
 #include <TRandom3.h>
 #include <TRandom.h>
@@ -84,8 +84,6 @@ class DTYieldCalculator {
     std::map<std::string, double> branchingRatios = {getKeyed("BranchingRatios")};
     std::map<std::string, double> efficiencies    = {getKeyed("Efficiencies")};
 };
-
-void add_CP_conjugate( MinuitParameterSet& mps );
 
 template <class PDF> struct normalised_pdf {
   PDF       pdf; 
@@ -266,7 +264,7 @@ int main( int argc, char** argv )
 #endif
   MinuitParameterSet MPS; 
   MPS.loadFromStream();
-  add_CP_conjugate( MPS );
+  AddCPConjugate(MPS);
   EventType signalType( pNames );
   TFile* f = TFile::Open( output.c_str() ,"RECREATE");
   auto yc = DTYieldCalculator(crossSection);
@@ -326,7 +324,7 @@ void add_CP_conjugate( MinuitParameterSet& mps )
       std::string pname   = tokens[0];
       if ( reOrIm == "Re" || reOrIm == "Im" ){
         auto p = Particle( pname ).conj();
-        sgn = reOrIm == "Re" ? p.quasiCP() : 1; 
+        sgn = reOrIm == "Re" ? p.CP() : 1; 
         new_name = p.uniqueString() +"_"+reOrIm;
       }
       else if( tokens.size() == 2 ) {
